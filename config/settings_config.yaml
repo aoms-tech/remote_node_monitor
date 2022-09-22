@@ -1,2 +1,3 @@
 SettingsFiles:
-  - settings_python_template
+  - settings_remote_node_monitor
+  - settings_private
