@@ -1,0 +1,9 @@
+[submodule "pythontools"]
+	path = pythontools
+	url = https://github.com/aoms-tech/pythontools.git
+[submodule "lib/external/pythontools"]
+	path = lib/external/pythontools
+	url = https://github.com/aoms-tech/pythontools.git
+[submodule "lib/external/mCommon3"]
+	path = lib/external/mCommon3
+	url = https://github.com/aoms-tech/mCommon3.git
