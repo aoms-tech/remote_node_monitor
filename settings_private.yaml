@@ -17,3 +17,7 @@ GoogleDrive:
 Nucleo:
   Port: '/dev/ttyAMA0'
   Baud: 115200
+
+Programmer:
+  Tool: atmelice_updi
+  PartID: m4809
