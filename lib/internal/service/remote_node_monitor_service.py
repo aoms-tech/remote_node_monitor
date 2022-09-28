@@ -2,9 +2,6 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
 import time
-from pyrclone import Rclone
-from pyrclone import RcloneError
-import piplates.RELAYplate as RelayHat
 
 from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig
 
@@ -57,6 +54,9 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
 
 
 def run_drive_sync_application(config: RemoteNodeMonitorConfig):
+    from pyrclone import Rclone
+    from pyrclone import RcloneError
+
     logger = setup_logger('rclone_logger', config.GoogleDrive.LocalLogPath+'/ggl_dr_sync.log')
     logger.info("Starting google drive sync script ...")
     timer_start = time.time()
@@ -96,6 +96,8 @@ def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
 
 
 def run_programming_application(config: RemoteNodeMonitorConfig):
+    import piplates.RELAYplate as RelayHat
+
     RelayHat.relayOFF(0, 1)  # Skyla1 UPDI
     RelayHat.relayOFF(0, 2)  # Creed1 UPDI
     RelayHat.relayOFF(0, 3)  # Skyla2 UPDI
@@ -127,18 +129,23 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
 
 
 def run_reset_application():
+    import piplates.RELAYplate as RelayHat
+
     print("Turning off relay to remove ground from Skyla's pwr_en ...")
     RelayHat.relayOFF(0, 5)
-    print("Waiting 10 seconds ...")
+    # print("Waiting 10 seconds ...")
     for i in range(1, 11):
-        print(f"Progress: {i}/10")
+        print(f"Progress: {i}/10 seconds", end='\r')
         time.sleep(1)
+    print()
     print("Turning relay back on to connect Skyla's pwr_en to ground ...")
     RelayHat.relayON(0, 5)
-    print("Complete. Exiting.")
+    print("Complete. Exiting reset application.")
 
 
 def run_init_relays():
+    import piplates.RELAYplate as RelayHat
+
     RelayHat.relayOFF(0, 1)     # Skyla1 UPDI
     RelayHat.relayOFF(0, 2)     # Creed1 UPDI
     RelayHat.relayOFF(0, 3)     # Skyla2 UPDI
@@ -146,3 +153,92 @@ def run_init_relays():
     RelayHat.relayON(0, 5)      # Skyla1 and Skyla2 pwr_en
     RelayHat.relayOFF(0, 6)     # Radio Module 1
     RelayHat.relayOFF(0, 7)     # Radio Module 2
+
+
+def get_info_table(b, a):
+    SPACER_AMOUNT = 45
+
+    headings = ['INFORMATION', 'BEFORE', 'AFTER']
+    string = ( headings[0] + (" " * (SPACER_AMOUNT-len(headings[0]))) + headings[1] +
+               (" " * (SPACER_AMOUNT-len(headings[1]))) + headings[2] + '\n')
+    for key in b:
+        if type(b[key]) == dict:
+            for nested_key in b[key]:
+                intro = key + '/' + nested_key + ":"
+                string += intro + (" " * (SPACER_AMOUNT - len(intro))) + str(b[key][nested_key]) + (" " * (SPACER_AMOUNT - len(str(b[key][nested_key])))) + "%s\n" % a[key][nested_key]
+        else:
+            intro = key + ":"
+            string += intro + (" " * (SPACER_AMOUNT - len(intro))) + str(b[key]) + (" " * (SPACER_AMOUNT - len(str(b[key])))) + "%s\n" % a[key]
+
+    return string
+
+
+def run_molly(config: RemoteNodeMonitorConfig):
+    from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
+    from lib.external.mCommon3.service.skyla_service import update_keys_dataframe_from_vault, generate_skyla_payload
+    import subprocess
+
+    reset_command = f'sudo st-flash reset'
+    subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+    config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud)
+
+    config.Nucleo.Serial.close()
+    config.Nucleo.Serial.open()
+
+    if not config.Skyla1.Molly and not config.Skyla2.Molly:
+        print("Both Skyla1 and Skyla2 have 'Molly' set to false in settings_molly file. Update and try again.")
+        print("Exiting.")
+        exit(0)
+
+    update_keys_dataframe_from_vault(config.Skyla1.Settings)
+
+    if config.Skyla1.Molly:
+        update_app_key(config.Skyla1.Settings)
+        update_net_key(config.Skyla1.Settings)
+        update_creed_settings(config.Skyla1.Settings)
+        skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
+        print(f"Skyla1 payload: {skyla1_payload}")
+        run_reset_application()
+        print("Running Molly application ...")
+        config.Nucleo.Serial.write(b'p')
+
+        skyla1_dict = {
+            "B": {},
+            "A": {}
+        }
+
+        while 1:
+            line = config.Nucleo.Serial.readline()
+            if line:
+                try:
+                    line = line.decode('utf-8').strip()
+                except:
+                    continue
+                else:
+                    # if "L|" in line:
+                    #     print(line)
+
+                    if "S1|" in line:
+                        contents = line.split("|")
+                        skyla1_dict[contents[1]][contents[2]] = contents[3]
+
+                    if "send payload" in line:
+                        config.Nucleo.Serial.write(skyla1_payload)
+
+                    if "molly complete" in line:
+                        break
+
+        print("=== SKYLA1 MOLLY OUTPUT ============================================================================"
+              "================================================")
+        print(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
+        print("Done Mollying Skyla1.")
+
+    # if config.Skyla2.Molly:
+    #     update_app_key(config.Skyla2.Settings)
+    #     update_net_key(config.Skyla2.Settings)
+    #     update_creed_settings(config.Skyla2.Settings)
+    #     skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
+    #     config.Nucleo.Serial.write(b'q')
+
+    print("Exiting.")

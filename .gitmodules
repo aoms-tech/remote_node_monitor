@@ -7,3 +7,6 @@
 [submodule "lib/external/mCommon3"]
 	path = lib/external/mCommon3
 	url = https://github.com/aoms-tech/mCommon3.git
+[submodule "lib/external/flora-keys"]
+	path = lib/external/flora-keys
+	url = https://github.com/aoms-tech/flora-keys.git

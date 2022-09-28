@@ -2,3 +2,4 @@ SettingsFiles:
   - settings_remote_node_monitor
   - settings_private
   - settings_programmer
+  - settings_molly

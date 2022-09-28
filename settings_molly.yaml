@@ -1,0 +1,49 @@
+Skyla1:
+  Molly: True
+  Settings:
+    DeviceID: 260A2269
+    ExternalSensorFreq: 60
+    InternalSensorFreq: 60
+    StatusFreq: 480
+    CreedTransmitFreq: 240
+    ClearDatalogger: 1
+    RTCCTrim: 39
+    CreedSettings:
+      RadioType: 2
+      ConnectionTime: 127
+      NoMsgAct: 60
+      MsgResp: 10
+      MsgRetry: 5
+      RadioMode: 0
+      LORA_DR: 0
+      LORA_CH: 0
+      LORA_FQ: 0
+      LORA_PLVL: 0
+      LTE_SIM: 0
+    KeyVault:
+      KeysPath: /home/raspberryaoms/Documents/remote_node_monitor/lib/external/flora-keys/vault/aoms_abp.csv
+
+Skyla2:
+  Molly: False
+  Settings:
+    DeviceID: 260A2268
+    ExternalSensorFreq: 60
+    InternalSensorFreq: 60
+    StatusFreq: 480
+    CreedTransmitFreq: 240
+    ClearDatalogger: 1
+    RTCCTrim: 39
+    CreedSettings:
+      RadioType: 2
+      ConnectionTime: 127
+      NoMsgAct: 60
+      MsgResp: 10
+      MsgRetry: 5
+      RadioMode: 0
+      LORA_DR: 0
+      LORA_CH: 0
+      LORA_FQ: 0
+      LORA_PLVL: 0
+      LTE_SIM: 0
+    KeyVault:
+      KeysPath: /home/raspberryaoms/Documents/remote_node_monitor/lib/external/flora-keys/vault/aoms_abp.csv

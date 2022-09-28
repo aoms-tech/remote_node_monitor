@@ -2,12 +2,15 @@ from lib.external.pythontools.dict_adaptable import DictAdaptable
 
 from lib.external.mCommon3.model.serialcomm import SerialConfig
 from lib.external.mCommon3.model.avrdude import AVRDudeConfig
+from lib.external.mCommon3.model.skyla import SkylaConfig
 
 
 class BEBoardConfig(DictAdaptable):
+    Molly: bool
     Program: bool
     LogFilePath: str
     ProgrammingHexPath: str
+    Settings: SkylaConfig
 
 
 class GoogleDriveConfig(DictAdaptable):
