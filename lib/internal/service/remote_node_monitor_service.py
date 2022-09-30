@@ -23,6 +23,8 @@ def setup_logger(name, log_file, level=logging.INFO):
 
 def run_monitor_application(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud)
+    config.Nucleo.Serial.close()
+    config.Nucleo.Serial.open()
 
     skyla1_logger = setup_logger('skyla1', config.Skyla1.LogFilePath)
     creed1_logger = setup_logger('creed1', config.Creed1.LogFilePath)
@@ -220,8 +222,12 @@ def run_molly(config: RemoteNodeMonitorConfig):
                     #     print(line)
 
                     if "S1|" in line:
-                        contents = line.split("|")
-                        skyla1_dict[contents[1]][contents[2]] = contents[3]
+                        try:
+                            contents = line.split("|")
+                            skyla1_dict[contents[1]][contents[2]] = contents[3]
+                        except:
+                            # print(line)
+                            continue
 
                     if "send payload" in line:
                         config.Nucleo.Serial.write(skyla1_payload)
