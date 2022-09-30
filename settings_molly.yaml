@@ -2,7 +2,7 @@ Skyla1:
   Molly: True
   Settings:
     DeviceID: 260A2269
-    ExternalSensorFreq: 120
+    ExternalSensorFreq: 60
     InternalSensorFreq: 60
     StatusFreq: 480
     CreedTransmitFreq: 240
@@ -24,10 +24,10 @@ Skyla1:
       KeysPath: /home/raspberryaoms/Documents/remote_node_monitor/lib/external/flora-keys/vault/aoms_abp.csv
 
 Skyla2:
-  Molly: False
+  Molly: True
   Settings:
     DeviceID: 260A2268
-    ExternalSensorFreq: 60
+    ExternalSensorFreq: 120
     InternalSensorFreq: 60
     StatusFreq: 480
     CreedTransmitFreq: 240

@@ -161,7 +161,7 @@ def get_info_table(b, a):
     SPACER_AMOUNT = 45
 
     headings = ['INFORMATION', 'BEFORE', 'AFTER']
-    string = ( headings[0] + (" " * (SPACER_AMOUNT-len(headings[0]))) + headings[1] +
+    string = (headings[0] + (" " * (SPACER_AMOUNT-len(headings[0]))) + headings[1] +
                (" " * (SPACER_AMOUNT-len(headings[1]))) + headings[2] + '\n')
     for key in b:
         if type(b[key]) == dict:
@@ -193,16 +193,15 @@ def run_molly(config: RemoteNodeMonitorConfig):
         print("Exiting.")
         exit(0)
 
-    update_keys_dataframe_from_vault(config.Skyla1.Settings)
-
     if config.Skyla1.Molly:
+        update_keys_dataframe_from_vault(config.Skyla1.Settings)
         update_app_key(config.Skyla1.Settings)
         update_net_key(config.Skyla1.Settings)
         update_creed_settings(config.Skyla1.Settings)
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
         print(f"Skyla1 payload: {skyla1_payload}")
         run_reset_application()
-        print("Running Molly application ...")
+        print("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(b'p')
 
         skyla1_dict = {
@@ -218,9 +217,6 @@ def run_molly(config: RemoteNodeMonitorConfig):
                 except:
                     continue
                 else:
-                    # if "L|" in line:
-                    #     print(line)
-
                     if "S1|" in line:
                         try:
                             contents = line.split("|")
@@ -240,11 +236,46 @@ def run_molly(config: RemoteNodeMonitorConfig):
         print(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
         print("Done Mollying Skyla1.")
 
-    # if config.Skyla2.Molly:
-    #     update_app_key(config.Skyla2.Settings)
-    #     update_net_key(config.Skyla2.Settings)
-    #     update_creed_settings(config.Skyla2.Settings)
-    #     skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
-    #     config.Nucleo.Serial.write(b'q')
+    if config.Skyla2.Molly:
+        update_keys_dataframe_from_vault(config.Skyla2.Settings)
+        update_app_key(config.Skyla2.Settings)
+        update_net_key(config.Skyla2.Settings)
+        update_creed_settings(config.Skyla2.Settings)
+        skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
+        print(f"Skyla2 payload: {skyla2_payload}")
+        run_reset_application()
+        print("Running Molly application on Skyla2 ...")
+        config.Nucleo.Serial.write(b'q')
 
-    print("Exiting.")
+        skyla2_dict = {
+            "B": {},
+            "A": {}
+        }
+
+        while 1:
+            line = config.Nucleo.Serial.readline()
+            if line:
+                try:
+                    line = line.decode('utf-8').strip()
+                except:
+                    continue
+                else:
+                    if "S2|" in line:
+                        try:
+                            contents = line.split("|")
+                            skyla2_dict[contents[1]][contents[2]] = contents[3]
+                        except:
+                            continue
+
+                    if "send payload" in line:
+                        config.Nucleo.Serial.write(skyla2_payload)
+
+                    if "molly complete" in line:
+                        break
+
+        print("=== SKYLA2 MOLLY OUTPUT ============================================================================"
+              "================================================")
+        print(get_info_table(skyla2_dict["B"], skyla2_dict["A"]))
+        print("Done Mollying Skyla2.")
+
+    print("Exiting. Please reset Pi now.")
