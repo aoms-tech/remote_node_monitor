@@ -5,12 +5,17 @@ from lib.external.mCommon3.model.avrdude import AVRDudeConfig
 from lib.external.mCommon3.model.skyla import SkylaConfig
 
 
+class BluesConfig(DictAdaptable):
+    Serial: SerialConfig
+
+
 class BEBoardConfig(DictAdaptable):
     Molly: bool
     Program: bool
     LogFilePath: str
     ProgrammingHexPath: str
     Settings: SkylaConfig
+    Blues: BluesConfig
 
 
 class GoogleDriveConfig(DictAdaptable):

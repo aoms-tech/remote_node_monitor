@@ -27,7 +27,7 @@ Skyla2:
   Molly: True
   Settings:
     DeviceID: 260A2268
-    ExternalSensorFreq: 120
+    ExternalSensorFreq: 60
     InternalSensorFreq: 60
     StatusFreq: 480
     CreedTransmitFreq: 240

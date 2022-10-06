@@ -3,12 +3,18 @@ Skyla1:
 
 Creed1:
   LogFilePath: /home/raspberryaoms/Documents/remote_node_monitor/logs/creed1.log
+  Blues:
+    Serial:
+      Baud: 115200
 
 Skyla2:
   LogFilePath: /home/raspberryaoms/Documents/remote_node_monitor/logs/skyla2.log
 
 Creed2:
   LogFilePath: /home/raspberryaoms/Documents/remote_node_monitor/logs/creed2.log
+  Blues:
+    Serial:
+      Baud: 115200
 
 GoogleDrive:
   LocalLogPath: /home/raspberryaoms/Documents/remote_node_monitor/logs

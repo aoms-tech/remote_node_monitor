@@ -8,15 +8,23 @@ from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig
 from lib.external.mCommon3.service.avrdude_service import program_board
 
 
-def setup_logger(name, log_file, level=logging.INFO):
+def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     formatter = logging.Formatter('%(asctime)s %(message)s')
-    handler = TimedRotatingFileHandler(log_file, when="midnight", interval=1)
-    handler.suffix = "%Y%m%d"
-    handler.setFormatter(formatter)
+    if rotating:
+        handler = TimedRotatingFileHandler(log_file, when="midnight", interval=1)
+        handler.suffix = "%Y%m%d"
+        handler.setFormatter(formatter)
+    else:
+        handler = logging.FileHandler(filename=log_file)
+        handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.addHandler(handler)
+    logger.addHandler(stream_handler)
 
     return logger
 
@@ -130,11 +138,71 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
         RelayHat.relayOFF(0, 4)
 
 
+def run_controller_application(config: RemoteNodeMonitorConfig):
+    import piplates.RELAYplate as RelayHat
+    from serial.tools import list_ports
+
+    # Set off state for relays
+    RelayHat.relayOFF(0, 1)     # Skyla1 UPDI
+    RelayHat.relayOFF(0, 2)     # Creed1 UPDI
+    RelayHat.relayOFF(0, 3)     # Skyla2 UPDI
+    RelayHat.relayOFF(0, 4)     # Creed2 UPDI
+    RelayHat.relayOFF(0, 5)     # Skyla1 and Skyla2 pwr_en
+    RelayHat.relayOFF(0, 6)     # Radio Module 1
+    RelayHat.relayOFF(0, 7)     # Radio Module 2
+
+    print("Waiting 10 seconds before starting up skyla ...")
+    for i in range(1, 11):
+        print(f"Progress: {i}/10 seconds", end='\r')
+        time.sleep(1)
+
+    # Blues logger setup
+    blues1_logger = setup_logger('blues_logger1', config.GoogleDrive.LocalLogPath + '/blues1.log')
+    blues2_logger = setup_logger('blues_logger2', config.GoogleDrive.LocalLogPath + '/blues2.log')
+    blues1_logger.info("Starting blues notecard 1 logging script ...")
+    blues2_logger.info("Starting blues notecard 2 logging script ...")
+
+    # Find blues module serial ports
+    ports_before_list = list_ports.comports()
+    RelayHat.relayON(0, 5)      # Skyla1 and Skyla2 pwr_en
+    RelayHat.relayON(0, 6)      # Radio Module 1
+    time.sleep(2)
+    ports_middle_list = list_ports.comports()
+    for port in ports_middle_list:
+        if port not in ports_before_list:
+            config.Creed1.Blues.Serial.Port = port.device
+
+    RelayHat.relayON(0, 7)      # Radio Module 2
+    time.sleep(2)
+    ports_end_list = list_ports.comports()
+    for port in ports_end_list:
+        if port not in ports_middle_list:
+            config.Creed2.Blues.Serial.Port = port.device
+
+    config.Creed1.Blues.Serial.Serial = serial.Serial(config.Creed1.Blues.Serial.Port, config.Creed1.Blues.Serial.Baud)
+    config.Creed2.Blues.Serial.Serial = serial.Serial(config.Creed2.Blues.Serial.Port, config.Creed2.Blues.Serial.Baud)
+    config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
+    config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
+
+    while 1:
+        blues1_line = config.Creed1.Blues.Serial.Serial.readline()
+        blues2_line = config.Creed2.Blues.Serial.Serial.readline()
+
+        if blues1_line:
+            blues1_logger.info(blues1_line)
+            # print(blues1_line)
+        if blues2_line:
+            blues2_logger.info(blues2_line)
+            # print(blues2_line)
+
+
 def run_reset_application():
     import piplates.RELAYplate as RelayHat
 
     print("Turning off relay to remove ground from Skyla's pwr_en ...")
     RelayHat.relayOFF(0, 5)
+    RelayHat.relayOFF(0, 6)
+    RelayHat.relayOFF(0, 7)
     # print("Waiting 10 seconds ...")
     for i in range(1, 11):
         print(f"Progress: {i}/10 seconds", end='\r')
@@ -158,19 +226,21 @@ def run_init_relays():
 
 
 def get_info_table(b, a):
-    SPACER_AMOUNT = 45
+    spacer_amount = 45
 
     headings = ['INFORMATION', 'BEFORE', 'AFTER']
-    string = (headings[0] + (" " * (SPACER_AMOUNT-len(headings[0]))) + headings[1] +
-               (" " * (SPACER_AMOUNT-len(headings[1]))) + headings[2] + '\n')
+    string = (headings[0] + (" " * (spacer_amount - len(headings[0]))) + headings[1] + (
+                " " * (spacer_amount - len(headings[1]))) + headings[2] + '\n')
     for key in b:
         if type(b[key]) == dict:
             for nested_key in b[key]:
                 intro = key + '/' + nested_key + ":"
-                string += intro + (" " * (SPACER_AMOUNT - len(intro))) + str(b[key][nested_key]) + (" " * (SPACER_AMOUNT - len(str(b[key][nested_key])))) + "%s\n" % a[key][nested_key]
+                string += intro + (" " * (spacer_amount - len(intro))) + str(b[key][nested_key]) + (
+                            " " * (spacer_amount - len(str(b[key][nested_key])))) + "%s\n" % a[key][nested_key]
         else:
             intro = key + ":"
-            string += intro + (" " * (SPACER_AMOUNT - len(intro))) + str(b[key]) + (" " * (SPACER_AMOUNT - len(str(b[key])))) + "%s\n" % a[key]
+            string += intro + (" " * (spacer_amount - len(intro))) + str(b[key]) + (
+                        " " * (spacer_amount - len(str(b[key])))) + "%s\n" % a[key]
 
     return string
 
@@ -179,6 +249,10 @@ def run_molly(config: RemoteNodeMonitorConfig):
     from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
     from lib.external.mCommon3.service.skyla_service import update_keys_dataframe_from_vault, generate_skyla_payload
     import subprocess
+    import datetime
+
+    monitor_stop_command = f'sudo systemctl stop remoteNodeMonitor.service'
+    subprocess.run(monitor_stop_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
     reset_command = f'sudo st-flash reset'
     subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
@@ -188,9 +262,14 @@ def run_molly(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
+    molly_logger_file_name = config.GoogleDrive.LocalLogPath + datetime.datetime.now().strftime(
+        "/%Y%m%d_%H%M%S_molly.log")
+    molly_logger = setup_logger("molly_logger", molly_logger_file_name, rotating=1)
+
     if not config.Skyla1.Molly and not config.Skyla2.Molly:
-        print("Both Skyla1 and Skyla2 have 'Molly' set to false in settings_molly file. Update and try again.")
-        print("Exiting.")
+        molly_logger.info(
+            "Both Skyla1 and Skyla2 have 'Molly' set to false in settings_molly file. Update and try again.")
+        molly_logger.info("Exiting.")
         exit(0)
 
     if config.Skyla1.Molly:
@@ -199,9 +278,9 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_net_key(config.Skyla1.Settings)
         update_creed_settings(config.Skyla1.Settings)
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
-        print(f"Skyla1 payload: {skyla1_payload}")
+        molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
         run_reset_application()
-        print("Running Molly application on Skyla1 ...")
+        molly_logger.info("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(b'p')
 
         skyla1_dict = {
@@ -231,10 +310,11 @@ def run_molly(config: RemoteNodeMonitorConfig):
                     if "molly complete" in line:
                         break
 
-        print("=== SKYLA1 MOLLY OUTPUT ============================================================================"
-              "================================================")
-        print(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
-        print("Done Mollying Skyla1.")
+        molly_logger.info(
+            "=== SKYLA1 MOLLY OUTPUT ============================================================================"
+            "================================================")
+        molly_logger.info(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
+        molly_logger.info("Done Mollying Skyla1.")
 
     if config.Skyla2.Molly:
         update_keys_dataframe_from_vault(config.Skyla2.Settings)
@@ -242,9 +322,9 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_net_key(config.Skyla2.Settings)
         update_creed_settings(config.Skyla2.Settings)
         skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
-        print(f"Skyla2 payload: {skyla2_payload}")
+        molly_logger.info(f"Skyla2 payload: {skyla2_payload}")
         run_reset_application()
-        print("Running Molly application on Skyla2 ...")
+        molly_logger.info("Running Molly application on Skyla2 ...")
         config.Nucleo.Serial.write(b'q')
 
         skyla2_dict = {
@@ -273,9 +353,14 @@ def run_molly(config: RemoteNodeMonitorConfig):
                     if "molly complete" in line:
                         break
 
-        print("=== SKYLA2 MOLLY OUTPUT ============================================================================"
-              "================================================")
-        print(get_info_table(skyla2_dict["B"], skyla2_dict["A"]))
-        print("Done Mollying Skyla2.")
+        molly_logger.info(
+            "=== SKYLA2 MOLLY OUTPUT ============================================================================"
+            "================================================")
+        molly_logger.info(get_info_table(skyla2_dict["B"], skyla2_dict["A"]))
+        molly_logger.info("Done Mollying Skyla2.")
 
-    print("Exiting. Please reset Pi now.")
+    molly_logger.info("Exiting. Please reset Pi now.")
+
+
+# todo: have molly messages save to log file
+# todo: fix the logging repo and put into our file structures
