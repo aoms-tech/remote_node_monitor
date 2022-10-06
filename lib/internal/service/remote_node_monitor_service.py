@@ -66,9 +66,11 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
 def run_drive_sync_application(config: RemoteNodeMonitorConfig):
     from pyrclone import Rclone
     from pyrclone import RcloneError
+    import os
 
     logger = setup_logger('rclone_logger', config.GoogleDrive.LocalLogPath+'/ggl_dr_sync.log')
     logger.info("Starting google drive sync script ...")
+
     timer_start = time.time()
     while 1:
         if time.time() - timer_start > config.GoogleDrive.SyncFrequency:
@@ -77,6 +79,9 @@ def run_drive_sync_application(config: RemoteNodeMonitorConfig):
             if output.return_code is not RcloneError.SUCCESS:
                 logger.info(output.error)
             else:
+                for f in os.listdir(config.GoogleDrive.LocalLogPath):
+                    if f[0].isnumeric():
+                        os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
                 logger.info("Google drive updated.")
             timer_start = time.time()
 
