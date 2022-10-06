@@ -1,15 +1,15 @@
 Skyla1:
-  Program: True
-  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822-SKYLA_G0-1113TE_RGB.hex
+  Program: False
+  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822.-.SKYLA_G0.-.1.1.13TE_RGB.hex
 
 Creed1:
-  Program: True
-  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822-CREED_LTE_NOTECARD_H0-V1016_LP.hex
+  Program: False
+  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/221003.-.CREED_LTE_NOTECARD_H0.-.V1.0.17_LP.hex
 
 Skyla2:
   Program: True
-  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822-SKYLA_G0-1113TE_RGB.hex
+  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822.-.SKYLA_G0.-.1.1.13TE_RGB.hex
 
 Creed2:
   Program: True
-  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822-CREED_LTE_NOTECARD_H0-V1016_LP.hex
+  ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/221003.-.CREED_LTE_NOTECARD_H0.-.V1.0.17_LP.hex

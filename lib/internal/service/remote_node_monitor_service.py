@@ -137,6 +137,8 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
         run_programming_sequence(config, 'Creed2')
         RelayHat.relayOFF(0, 4)
 
+    print("Application complete. Exiting. Please reboot pi now.")
+
 
 def run_controller_application(config: RemoteNodeMonitorConfig):
     import piplates.RELAYplate as RelayHat
@@ -361,6 +363,4 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
     molly_logger.info("Exiting. Please reset Pi now.")
 
-
-# todo: have molly messages save to log file
 # todo: fix the logging repo and put into our file structures
