@@ -1,9 +1,9 @@
 Skyla1:
-  Program: False
+  Program: True
   ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/220822.-.SKYLA_G0.-.1.1.13TE_RGB.hex
 
 Creed1:
-  Program: False
+  Program: True
   ProgrammingHexPath: /home/raspberryaoms/Documents/remote_node_monitor/hex_files/221003.-.CREED_LTE_NOTECARD_H0.-.V1.0.17_LP.hex
 
 Skyla2:

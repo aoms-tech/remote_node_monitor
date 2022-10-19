@@ -52,7 +52,6 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
             except:
                 pass
             prefix = line[:3]
-            print(line)
             if prefix == "S1|":
                 skyla1_logger.info(line[3:])
             elif prefix == "C1|":
@@ -84,6 +83,15 @@ def run_drive_sync_application(config: RemoteNodeMonitorConfig):
                         os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
                 logger.info("Google drive updated.")
             timer_start = time.time()
+
+        file_list = os.listdir(config.GoogleDrive.LocalLogPath)
+        filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
+        if filtered_file_list:
+            for file in filtered_file_list:
+                new_filename = file[-8:] + "_" + file[:-9]
+                logger.info(f"Renaming {file} to {new_filename}")
+                os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
+                          os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
 
 
 def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
@@ -117,6 +125,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
     RelayHat.relayOFF(0, 2)  # Creed1 UPDI
     RelayHat.relayOFF(0, 3)  # Skyla2 UPDI
     RelayHat.relayOFF(0, 4)  # Creed2 UPDI
+    RelayHat.relayON(0, 5)   # PWR EN
 
     if config.Skyla1.Program:
         RelayHat.relayON(0, 1)
@@ -146,6 +155,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
 
 
 def run_controller_application(config: RemoteNodeMonitorConfig):
+    import subprocess
     import piplates.RELAYplate as RelayHat
     from serial.tools import list_ports
 
@@ -191,16 +201,17 @@ def run_controller_application(config: RemoteNodeMonitorConfig):
     config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
     config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
 
+    reset_command = f'sudo st-flash reset'
+    subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
     while 1:
         blues1_line = config.Creed1.Blues.Serial.Serial.readline()
         blues2_line = config.Creed2.Blues.Serial.Serial.readline()
 
         if blues1_line:
             blues1_logger.info(blues1_line)
-            # print(blues1_line)
         if blues2_line:
             blues2_logger.info(blues2_line)
-            # print(blues2_line)
 
 
 def run_reset_application():
@@ -262,7 +273,8 @@ def run_molly(config: RemoteNodeMonitorConfig):
     subprocess.run(monitor_stop_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
     reset_command = f'sudo st-flash reset'
-    subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+    out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+    print(out.stdout)
 
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud)
 
@@ -298,6 +310,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         while 1:
             line = config.Nucleo.Serial.readline()
             if line:
+                print(line)
                 try:
                     line = line.decode('utf-8').strip()
                 except:
@@ -308,7 +321,6 @@ def run_molly(config: RemoteNodeMonitorConfig):
                             contents = line.split("|")
                             skyla1_dict[contents[1]][contents[2]] = contents[3]
                         except:
-                            # print(line)
                             continue
 
                     if "send payload" in line:
@@ -323,6 +335,10 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
         molly_logger.info("Done Mollying Skyla1.")
 
+    reset_command = f'sudo st-flash reset'
+    out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+    print(out.stdout)
+
     if config.Skyla2.Molly:
         update_keys_dataframe_from_vault(config.Skyla2.Settings)
         update_app_key(config.Skyla2.Settings)
@@ -330,9 +346,10 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla2.Settings)
         skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
         molly_logger.info(f"Skyla2 payload: {skyla2_payload}")
+        config.Nucleo.Serial.flushInput()
+        config.Nucleo.Serial.write(b'q')
         run_reset_application()
         molly_logger.info("Running Molly application on Skyla2 ...")
-        config.Nucleo.Serial.write(b'q')
 
         skyla2_dict = {
             "B": {},
@@ -342,6 +359,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         while 1:
             line = config.Nucleo.Serial.readline()
             if line:
+                print(line)
                 try:
                     line = line.decode('utf-8').strip()
                 except:
@@ -368,4 +386,24 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
     molly_logger.info("Exiting. Please reset Pi now.")
 
-# todo: fix the logging repo and put into our file structures
+
+def run_charger_app(config: RemoteNodeMonitorConfig):
+    import subprocess
+
+    print("Insert 1 to turn charger on, 2 to turn charger off.")
+    user_input = input("Insert: ")
+
+    if user_input == "1":
+        program_command = f'sudo st-flash write /home/raspberryaoms/Documents/remote_node_monitor/nucleo_bin/remoteNodeMonitor_ChOn.bin 0x08000000'
+    elif user_input == "2":
+        program_command = f'sudo st-flash write /home/raspberryaoms/Documents/remote_node_monitor/nucleo_bin/remoteNodeMonitor.bin 0x08000000'
+    else:
+        print("Invalid input.")
+        exit(0)
+
+    out = subprocess.run(program_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+    if b'jolly' not in out.stdout:
+        out = subprocess.run(program_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+    print(out.stdout)

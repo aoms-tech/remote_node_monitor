@@ -18,7 +18,7 @@ Creed2:
 
 GoogleDrive:
   LocalLogPath: /home/raspberryaoms/Documents/remote_node_monitor/logs
-  RemoteLogPath: ggl-dr:luminode_observer/11PR0001
+  RemoteLogPath: ggl-dr:luminode_observer/11PR0003
 
 Nucleo:
   Port: '/dev/ttyAMA0'

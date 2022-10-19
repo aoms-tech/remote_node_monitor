@@ -1,11 +1,11 @@
 Skyla1:
   Molly: True
   Settings:
-    DeviceID: 260A2269
-    ExternalSensorFreq: 60
-    InternalSensorFreq: 60
-    StatusFreq: 480
-    CreedTransmitFreq: 240
+    DeviceID: 260A2006
+    ExternalSensorFreq: 900
+    InternalSensorFreq: 900
+    StatusFreq: 1800
+    CreedTransmitFreq: 3600
     ClearDatalogger: 1
     RTCCTrim: 39
     CreedSettings:
@@ -26,11 +26,11 @@ Skyla1:
 Skyla2:
   Molly: True
   Settings:
-    DeviceID: 260A2268
-    ExternalSensorFreq: 60
-    InternalSensorFreq: 60
-    StatusFreq: 480
-    CreedTransmitFreq: 240
+    DeviceID: 260A2007
+    ExternalSensorFreq: 900
+    InternalSensorFreq: 900
+    StatusFreq: 1800
+    CreedTransmitFreq: 3600
     ClearDatalogger: 1
     RTCCTrim: 39
     CreedSettings:
