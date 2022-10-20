@@ -47,6 +47,7 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
     while 1:
         line = config.Nucleo.Serial.readline()
         if line:
+            print(line)
             try:
                 line = line.decode('utf-8').strip()
             except:
@@ -346,10 +347,9 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla2.Settings)
         skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
         molly_logger.info(f"Skyla2 payload: {skyla2_payload}")
-        config.Nucleo.Serial.flushInput()
-        config.Nucleo.Serial.write(b'q')
         run_reset_application()
         molly_logger.info("Running Molly application on Skyla2 ...")
+        config.Nucleo.Serial.write(b'q')
 
         skyla2_dict = {
             "B": {},
