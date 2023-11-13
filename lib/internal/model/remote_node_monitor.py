@@ -19,12 +19,15 @@ class BEBoardConfig(DictAdaptable):
 
 
 class GoogleDriveConfig(DictAdaptable):
+    Mode: int           # 1 = frequency, 2 = daily at X hour
     SyncFrequency: int
+    ResetDailyTime: int
     LocalLogPath: str
     RemoteLogPath: str
 
 
 class RemoteNodeMonitorConfig(DictAdaptable):
+    BluesTraceFrequencyMinutes: int
     Nucleo: SerialConfig
     GoogleDrive: GoogleDriveConfig
     Programmer: AVRDudeConfig

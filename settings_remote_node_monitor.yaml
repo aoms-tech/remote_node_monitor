@@ -1,2 +1,6 @@
 GoogleDrive:
-  SyncFrequency: 1800
+  Mode: 1
+  SyncFrequency: 120
+  ResetDailyTime: 9
+
+BluesTraceFrequencyMinutes: 5

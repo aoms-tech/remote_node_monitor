@@ -1,3 +1,4 @@
+import datetime
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
@@ -71,28 +72,55 @@ def run_drive_sync_application(config: RemoteNodeMonitorConfig):
     logger = setup_logger('rclone_logger', config.GoogleDrive.LocalLogPath+'/ggl_dr_sync.log')
     logger.info("Starting google drive sync script ...")
 
-    timer_start = time.time()
-    while 1:
-        if time.time() - timer_start > config.GoogleDrive.SyncFrequency:
-            output = Rclone().copy(config.GoogleDrive.LocalLogPath, config.GoogleDrive.RemoteLogPath)
+    if config.GoogleDrive.Mode == 1:
+        timer_start = time.time()
+        while 1:
+            if time.time() - timer_start > config.GoogleDrive.SyncFrequency:
+                output = Rclone().copy(config.GoogleDrive.LocalLogPath, config.GoogleDrive.RemoteLogPath)
 
-            if output.return_code is not RcloneError.SUCCESS:
-                logger.info(output.error)
-            else:
-                for f in os.listdir(config.GoogleDrive.LocalLogPath):
-                    if f[0].isnumeric():
-                        os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
-                logger.info("Google drive updated.")
-            timer_start = time.time()
+                if output.return_code is not RcloneError.SUCCESS:
+                    logger.info(output.error)
+                else:
+                    for f in os.listdir(config.GoogleDrive.LocalLogPath):
+                        if f[0].isnumeric():
+                            os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
+                    logger.info("Google drive updated.")
+                timer_start = time.time()
 
-        file_list = os.listdir(config.GoogleDrive.LocalLogPath)
-        filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
-        if filtered_file_list:
-            for file in filtered_file_list:
-                new_filename = file[-8:] + "_" + file[:-9]
-                logger.info(f"Renaming {file} to {new_filename}")
-                os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
-                          os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
+            file_list = os.listdir(config.GoogleDrive.LocalLogPath)
+            filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
+            if filtered_file_list:
+                for file in filtered_file_list:
+                    new_filename = file[-8:] + "_" + file[:-9]
+                    logger.info(f"Renaming {file} to {new_filename}")
+                    os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
+                              os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
+    elif config.GoogleDrive.Mode == 2:
+        last_date_synced = ""
+        logger.info(datetime.datetime.now().hour)
+        while 1:
+            current_date = datetime.datetime.now()
+            if current_date.day != last_date_synced:
+                if current_date.hour == config.GoogleDrive.ResetDailyTime:
+                    last_date_synced = current_date.day
+                    output = Rclone().copy(config.GoogleDrive.LocalLogPath, config.GoogleDrive.RemoteLogPath)
+
+                    if output.return_code is not RcloneError.SUCCESS:
+                        logger.info(output.error)
+                    else:
+                        for f in os.listdir(config.GoogleDrive.LocalLogPath):
+                            if f[0].isnumeric():
+                                os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
+                        logger.info("Google drive updated.")
+
+            file_list = os.listdir(config.GoogleDrive.LocalLogPath)
+            filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
+            if filtered_file_list:
+                for file in filtered_file_list:
+                    new_filename = file[-8:] + "_" + file[:-9]
+                    logger.info(f"Renaming {file} to {new_filename}")
+                    os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
+                              os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
 
 
 def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
@@ -197,15 +225,44 @@ def run_controller_application(config: RemoteNodeMonitorConfig):
         if port not in ports_middle_list:
             config.Creed2.Blues.Serial.Port = port.device
 
-    config.Creed1.Blues.Serial.Serial = serial.Serial(config.Creed1.Blues.Serial.Port, config.Creed1.Blues.Serial.Baud)
-    config.Creed2.Blues.Serial.Serial = serial.Serial(config.Creed2.Blues.Serial.Port, config.Creed2.Blues.Serial.Baud)
+    if not config.Creed1.Blues.Serial.Port and not config.Creed2.Blues.Serial.Port:
+        blues1_logger.info("No port found for both Blues cards. Exiting.")
+        blues2_logger.info("No port found for both Blues cards. Exiting.")
+
+    if not config.Creed1.Blues.Serial.Port:
+        for port in ports_before_list:
+            if "ACM" in port.device:
+                config.Creed1.Blues.Serial.Port = port.device
+
+    if not config.Creed2.Blues.Serial.Port:
+        for port in ports_before_list:
+            if "ACM" in port.device:
+                config.Creed2.Blues.Serial.Port = port.device
+
+    config.Creed1.Blues.Serial.Serial = serial.Serial(config.Creed1.Blues.Serial.Port, config.Creed1.Blues.Serial.Baud,
+                                                      timeout=10)
+    config.Creed2.Blues.Serial.Serial = serial.Serial(config.Creed2.Blues.Serial.Port, config.Creed2.Blues.Serial.Baud,
+                                                      timeout=10)
+    config.Creed1.Blues.Serial.Serial.close()
+    config.Creed2.Blues.Serial.Serial.close()
+    config.Creed1.Blues.Serial.Serial.open()
+    config.Creed2.Blues.Serial.Serial.open()
+
     config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
     config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
 
     reset_command = f'sudo st-flash reset'
     subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
+    start_time = time.time()
     while 1:
+        if time.time() - start_time > (config.BluesTraceFrequencyMinutes*60):
+            blues1_logger.info("Sending trace message again ----------------------------------------------------------")
+            blues2_logger.info("Sending trace message again ----------------------------------------------------------")
+            config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
+            config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
+            start_time = time.time()
+
         blues1_line = config.Creed1.Blues.Serial.Serial.readline()
         blues2_line = config.Creed2.Blues.Serial.Serial.readline()
 
