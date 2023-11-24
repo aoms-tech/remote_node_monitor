@@ -1,3 +1,22 @@
+#define Pi <--> Nucleo UART com consts
+SKYLA1_PREFIX = "S1|"
+SKYLA2_PREFIX = "S2|"
+CREED1_PREFIX = "C1|"
+CREED2_PREFIX = "C2|"
+
+SETMODE_OBSERVE = b'a'
+SETMODE_VALIDATE = b'b'
+SETMODE_MOLLY_DEV1 = b'c'
+SETMODE_MOLLY_DEV2 = b'd'
+SETMODE_PROGRAM_DEV1 = b'e'
+SETMODE_PROGRAM_DEV2 = b'f'
+SETMODE_PROGRAM_DEV3 = b'g'
+SETMODE_PROGRAM_DEV4 = b'h'
+SETMODE_SENS_SELECT	= b'i'
+SETMODE_SET_CHG_STATE = b'j'
+
+PI_PROCESS_FIN = b'`'
+
 import datetime
 import logging
 from logging.handlers import TimedRotatingFileHandler
@@ -7,6 +26,10 @@ import time
 from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig
 
 from lib.external.mCommon3.service.avrdude_service import program_board
+
+
+def init():
+    print();
 
 
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
@@ -54,16 +77,17 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
             except:
                 pass
             prefix = line[:3]
-            if prefix == "S1|":
+            if prefix == SKYLA1_PREFIX:
                 skyla1_logger.info(line[3:])
-            elif prefix == "C1|":
+            elif prefix == CREED1_PREFIX:
                 creed1_logger.info(line[3:])
-            elif prefix == "S2|":
+            elif prefix == SKYLA2_PREFIX:
                 skyla2_logger.info(line[3:])
-            elif prefix == "C2|":
+            elif prefix == CREED2_PREFIX:
                 creed2_logger.info(line[3:])
 
 
+#change to S3 bucket and change service scheduler to crontab
 def run_drive_sync_application(config: RemoteNodeMonitorConfig):
     from pyrclone import Rclone
     from pyrclone import RcloneError
@@ -146,9 +170,13 @@ def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
                 else:
                     print(f"Attempting program again ... {p + 1}/{programming_attempts}")
 
-
 def run_programming_application(config: RemoteNodeMonitorConfig):
     import piplates.RELAYplate as RelayHat
+
+    config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=30)
+
+    config.Nucleo.Serial.close()
+    config.Nucleo.Serial.open()
 
     RelayHat.relayOFF(0, 1)  # Skyla1 UPDI
     RelayHat.relayOFF(0, 2)  # Creed1 UPDI
@@ -157,24 +185,37 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
     RelayHat.relayON(0, 5)   # PWR EN
 
     if config.Skyla1.Program:
-        RelayHat.relayON(0, 1)
-        config.Programmer.HexPath = config.Skyla1.ProgrammingHexPath
-        run_programming_sequence(config, 'Skyla1')
-        RelayHat.relayOFF(0, 1)
+        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV1)
+        line = config.Nucleo.Serial.readline(1)
+        if line:
+            print(line)
+            line = line.decode('utf-8').strip()
+            if line == "Ready to program Sklya1":
+                config.Programmer.HexPath = config.Skyla1.ProgrammingHexPath
+                run_programming_sequence(config, 'Skyla1')
+        else:
+            print("Read error")
+        config.Nucleo.Serial.write(PI_PROCESS_FIN)
 
     if config.Creed1.Program:
+        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV1)
+
         RelayHat.relayON(0, 2)
         config.Programmer.HexPath = config.Creed1.ProgrammingHexPath
         run_programming_sequence(config, 'Creed1')
         RelayHat.relayOFF(0, 2)
 
     if config.Skyla2.Program:
+
+
         RelayHat.relayON(0, 3)
         config.Programmer.HexPath = config.Skyla2.ProgrammingHexPath
         run_programming_sequence(config, 'Skyla2')
         RelayHat.relayOFF(0, 3)
 
     if config.Creed2.Program:
+
+
         RelayHat.relayON(0, 4)
         config.Programmer.HexPath = config.Creed2.ProgrammingHexPath
         run_programming_sequence(config, 'Creed2')
@@ -182,7 +223,8 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
 
     print("Application complete. Exiting. Please reboot pi now.")
 
-
+#schedule this job using cron
+#remove relayhat
 def run_controller_application(config: RemoteNodeMonitorConfig):
     import subprocess
     import piplates.RELAYplate as RelayHat
@@ -358,7 +400,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
         run_reset_application()
         molly_logger.info("Running Molly application on Skyla1 ...")
-        config.Nucleo.Serial.write(b'p')
+        config.Nucleo.Serial.write(SETMODE_MOLLY_DEV1)
 
         skyla1_dict = {
             "B": {},
@@ -374,7 +416,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
                 except:
                     continue
                 else:
-                    if "S1|" in line:
+                    if SKYLA1_PREFIX in line:
                         try:
                             contents = line.split("|")
                             skyla1_dict[contents[1]][contents[2]] = contents[3]
@@ -406,7 +448,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info(f"Skyla2 payload: {skyla2_payload}")
         run_reset_application()
         molly_logger.info("Running Molly application on Skyla2 ...")
-        config.Nucleo.Serial.write(b'q')
+        config.Nucleo.Serial.write(SETMODE_MOLLY_DEV2)
 
         skyla2_dict = {
             "B": {},
@@ -422,7 +464,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
                 except:
                     continue
                 else:
-                    if "S2|" in line:
+                    if SKYLA2_PREFIX in line:
                         try:
                             contents = line.split("|")
                             skyla2_dict[contents[1]][contents[2]] = contents[3]
@@ -443,7 +485,8 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
     molly_logger.info("Exiting. Please reset Pi now.")
 
-
+#clean up to swap instead of asking for user input
+#also change from changing hex to switching relay (serial com with Nucleo, control through Nucleo)
 def run_charger_app(config: RemoteNodeMonitorConfig):
     import subprocess
 
