@@ -35,3 +35,5 @@ class RemoteNodeMonitorConfig(DictAdaptable):
     Creed1: BEBoardConfig
     Skyla2: BEBoardConfig
     Creed2: BEBoardConfig
+    Node1: NodeSettings
+    Node2: NodeSettings

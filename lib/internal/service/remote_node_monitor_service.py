@@ -1,35 +1,106 @@
 #define Pi <--> Nucleo UART com consts
-SKYLA1_PREFIX = "S1|"
-SKYLA2_PREFIX = "S2|"
-CREED1_PREFIX = "C1|"
-CREED2_PREFIX = "C2|"
+SKYLA1_PREFIX: str = "S1|"
+SKYLA2_PREFIX: str = "S2|"
+CREED1_PREFIX: str = "C1|"
+CREED2_PREFIX: str = "C2|"
 
-SETMODE_OBSERVE = b'a'
-SETMODE_VALIDATE = b'b'
-SETMODE_MOLLY_DEV1 = b'c'
-SETMODE_MOLLY_DEV2 = b'd'
-SETMODE_PROGRAM_DEV1 = b'e'
-SETMODE_PROGRAM_DEV2 = b'f'
-SETMODE_PROGRAM_DEV3 = b'g'
-SETMODE_PROGRAM_DEV4 = b'h'
-SETMODE_SENS_SELECT	= b'i'
-SETMODE_SET_CHG_STATE = b'j'
+#DEV 1 => Skyla 1
+#DEV 2 => Skyla 2
+#DEV 3 => Creed 1
+#DEV 4 => Creed 2
+SETMODE_OBSERVE: bytes = b'a'
+SETMODE_VALIDATE: bytes = b'b'
+SETMODE_MOLLY_DEV1: bytes = b'c'
+SETMODE_MOLLY_DEV2: bytes = b'd'
+SETMODE_PROGRAM_DEV1: bytes = b'e'
+SETMODE_PROGRAM_DEV2: bytes = b'f'
+SETMODE_PROGRAM_DEV3: bytes = b'g'
+SETMODE_PROGRAM_DEV4: bytes = b'h'
+SETMODE_SENS_SELECT: bytes = b'i'
+SETMODE_SET_CHG_STATE: bytes = b'j'
+SETMODE_SET_DEV_PWR: bytes = b'k'
 
-PI_PROCESS_FIN = b'`'
+OFF: bytes = b'0'
+ON: bytes = b'1'
+CYCLE: bytes = b'2'
+
+BOTH: bytes = b'0'
+NODE1: bytes = b'1'
+NODE2: bytes = b'2'
+
+PI_PROCESS_FIN: bytes = b'`'
+
+SERVICES = {
+    'remoteNodeMonitor.service',
+    'remoteNodeMonitorSync.service',
+    'remoteNodeMonitorRelayInit.service'
+}
 
 import datetime
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
 import time
+import yaml
 
 from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig
 
 from lib.external.mCommon3.service.avrdude_service import program_board
 
 
-def init():
-    print();
+# done :D
+def run_init(config: RemoteNodeMonitorConfig):
+    data = yaml.safe_load("settings_node.yaml")
+
+    config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud)
+    config.Nucleo.Serial.close()
+    config.Nucleo.Serial.open()
+
+    for node in [1, 2]:
+        data = data[f"Node{node}"]
+
+        run_charger_app(config, node, data)
+        select_sensor(config, node, data)
+        set_node_state(config, node, data)
+        print(f"Node{node} initialization completed.")
+
+
+# done :D
+def set_node_state(config: RemoteNodeMonitorConfig, node: int, data: dict):
+    if data["NodeEnabled"]:
+        node_state = ON
+        node_state_message = "ON"
+    else:
+        node_state = OFF
+        node_state_message = "OFF"
+    config.Nucleo.Serial.write(SETMODE_SET_CHG_STATE)
+    config.Nucleo.Serial.write(bytes(node) + node_state)
+    print(f"Settings state for Node{node} to {node_state_message}")
+
+
+# done :D
+def select_sensor(config: RemoteNodeMonitorConfig, node: int, data: dict):
+    sensor_address = 0
+    for sensor_is_selected in data["SelectSens"]:
+        if sensor_is_selected:
+            config.Nucleo.Serial.write(SETMODE_SENS_SELECT)
+            config.Nucleo.Serial.write(bytes(node) + bytes(sensor_address))
+            break
+        sensor_address += 1
+    print(f"Setting sensor for Node{node} to {data['SelectSens'][sensor_address]}")
+
+
+# done :D
+def run_charger_app(config: RemoteNodeMonitorConfig, node: int, data: dict):
+    if data["ChargerEnable"]:
+        charger_state = ON
+        charger_state_message = "ON"
+    else:
+        charger_state = OFF
+        charger_state_message = "OFF"
+    config.Nucleo.Serial.write(SETMODE_SET_CHG_STATE)
+    config.Nucleo.Serial.write(bytes(node) + charger_state)
+    print(f"Settings charger for Node{node} to {charger_state_message}")
 
 
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
@@ -147,6 +218,33 @@ def run_drive_sync_application(config: RemoteNodeMonitorConfig):
                               os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
 
 
+#done
+def suspend_services():
+    import subprocess
+
+    reset_commands = []
+
+    for service in SERVICES:
+        reset_commands.append(f'sudo systemctl stop {service}')
+
+    for cmd in reset_commands:
+        subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+
+#done
+def resume_services():
+    import subprocess
+
+    resume_commands = []
+
+    for service in SERVICES:
+        resume_commands.append(f'sudo systemctl start {service}')
+
+    for cmd in resume_commands:
+        subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+
+#done
 def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
     programming_attempts = 2
     print(f"Programming {brd_name}")
@@ -170,19 +268,15 @@ def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
                 else:
                     print(f"Attempting program again ... {p + 1}/{programming_attempts}")
 
+
+#need to re-run init after programming or molly
 def run_programming_application(config: RemoteNodeMonitorConfig):
-    import piplates.RELAYplate as RelayHat
 
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=30)
-
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
-    RelayHat.relayOFF(0, 1)  # Skyla1 UPDI
-    RelayHat.relayOFF(0, 2)  # Creed1 UPDI
-    RelayHat.relayOFF(0, 3)  # Skyla2 UPDI
-    RelayHat.relayOFF(0, 4)  # Creed2 UPDI
-    RelayHat.relayON(0, 5)   # PWR EN
+    suspend_services()
 
     if config.Skyla1.Program:
         config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV1)
@@ -193,35 +287,55 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
             if line == "Ready to program Sklya1":
                 config.Programmer.HexPath = config.Skyla1.ProgrammingHexPath
                 run_programming_sequence(config, 'Skyla1')
+                run_reset_application(config, NODE1)
         else:
             print("Read error")
         config.Nucleo.Serial.write(PI_PROCESS_FIN)
 
     if config.Creed1.Program:
-        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV1)
-
-        RelayHat.relayON(0, 2)
-        config.Programmer.HexPath = config.Creed1.ProgrammingHexPath
-        run_programming_sequence(config, 'Creed1')
-        RelayHat.relayOFF(0, 2)
+        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV3)
+        line = config.Nucleo.Serial.readline(1)
+        if line:
+            print(line)
+            line = line.decode('utf-8').strip()
+            if line == "Ready to program Sklya1":
+                config.Programmer.HexPath = config.Creed1.ProgrammingHexPath
+                run_programming_sequence(config, 'Creed1')
+                run_reset_application(config, NODE1)
+        else:
+            print("Read error")
+        config.Nucleo.Serial.write(PI_PROCESS_FIN)
 
     if config.Skyla2.Program:
-
-
-        RelayHat.relayON(0, 3)
-        config.Programmer.HexPath = config.Skyla2.ProgrammingHexPath
-        run_programming_sequence(config, 'Skyla2')
-        RelayHat.relayOFF(0, 3)
+        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV2)
+        line = config.Nucleo.Serial.readline(1)
+        if line:
+            print(line)
+            line = line.decode('utf-8').strip()
+            if line == "Ready to program Sklya1":
+                config.Programmer.HexPath = config.Skyla2.ProgrammingHexPath
+                run_programming_sequence(config, 'Skyla2')
+                run_reset_application(config, NODE2)
+        else:
+            print("Read error")
+        config.Nucleo.Serial.write(PI_PROCESS_FIN)
 
     if config.Creed2.Program:
+        config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV4)
+        line = config.Nucleo.Serial.readline(1)
+        if line:
+            print(line)
+            line = line.decode('utf-8').strip()
+            if line == "Ready to program Sklya1":
+                config.Programmer.HexPath = config.Creed2.ProgrammingHexPath
+                run_programming_sequence(config, 'Creed2')
+                run_reset_application(config, NODE2)
+        else:
+            print("Read error")
+        config.Nucleo.Serial.write(PI_PROCESS_FIN)
 
-
-        RelayHat.relayON(0, 4)
-        config.Programmer.HexPath = config.Creed2.ProgrammingHexPath
-        run_programming_sequence(config, 'Creed2')
-        RelayHat.relayOFF(0, 4)
-
-    print("Application complete. Exiting. Please reboot pi now.")
+    resume_services()
+    print("Application complete. Resuming normal operation.")
 
 #schedule this job using cron
 #remove relayhat
@@ -230,6 +344,8 @@ def run_controller_application(config: RemoteNodeMonitorConfig):
     import piplates.RELAYplate as RelayHat
     from serial.tools import list_ports
 
+
+    #is this necessary?
     # Set off state for relays
     RelayHat.relayOFF(0, 1)     # Skyla1 UPDI
     RelayHat.relayOFF(0, 2)     # Creed1 UPDI
@@ -314,23 +430,34 @@ def run_controller_application(config: RemoteNodeMonitorConfig):
             blues2_logger.info(blues2_line)
 
 
-def run_reset_application():
-    import piplates.RELAYplate as RelayHat
+#done
+def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
 
-    print("Turning off relay to remove ground from Skyla's pwr_en ...")
-    RelayHat.relayOFF(0, 5)
-    RelayHat.relayOFF(0, 6)
-    RelayHat.relayOFF(0, 7)
-    # print("Waiting 10 seconds ...")
-    for i in range(1, 11):
-        print(f"Progress: {i}/10 seconds", end='\r')
+    config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=10)
+    config.Nucleo.Serial.close()
+    config.Nucleo.Serial.open()
+
+    config.Nucleo.Serial.write(SETMODE_SET_DEV_PWR)
+    config.Nucleo.Serial.write(node + CYCLE)
+    #waits for Node to be powered ON, Nucleo waits 30seconds before powering ON when power cycling
+    for i in range(30):
+        print(f"Progress: {i}/30 seconds", end='\r')
         time.sleep(1)
-    print()
-    print("Turning relay back on to connect Skyla's pwr_en to ground ...")
-    RelayHat.relayON(0, 5)
-    print("Complete. Exiting reset application.")
+
+    if node != NODE1 or NODE2 or BOTH:
+        print("Invalid Node selection")
+    else:
+        if node == NODE1 or BOTH:
+            line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
+            print("Device1 ON") if "Dev1 ON" in line_n1 else print("Device1 OFF")
+        if node == NODE2 or BOTH:
+            line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
+            print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
+
+    print("Power cycle complete.")
 
 
+#not used
 def run_init_relays():
     import piplates.RELAYplate as RelayHat
 
@@ -343,6 +470,7 @@ def run_init_relays():
     RelayHat.relayOFF(0, 7)     # Radio Module 2
 
 
+#done
 def get_info_table(b, a):
     spacer_amount = 45
 
@@ -363,6 +491,7 @@ def get_info_table(b, a):
     return string
 
 
+#done
 def run_molly(config: RemoteNodeMonitorConfig):
     from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
     from lib.external.mCommon3.service.skyla_service import update_keys_dataframe_from_vault, generate_skyla_payload
@@ -377,7 +506,6 @@ def run_molly(config: RemoteNodeMonitorConfig):
     print(out.stdout)
 
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud)
-
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
@@ -398,7 +526,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla1.Settings)
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
         molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
-        run_reset_application()
+        run_reset_application(config, NODE1)
         molly_logger.info("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(SETMODE_MOLLY_DEV1)
 
@@ -446,7 +574,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla2.Settings)
         skyla2_payload = generate_skyla_payload(config.Skyla2.Settings)
         molly_logger.info(f"Skyla2 payload: {skyla2_payload}")
-        run_reset_application()
+        run_reset_application(config, NODE2)
         molly_logger.info("Running Molly application on Skyla2 ...")
         config.Nucleo.Serial.write(SETMODE_MOLLY_DEV2)
 
@@ -484,26 +612,3 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info("Done Mollying Skyla2.")
 
     molly_logger.info("Exiting. Please reset Pi now.")
-
-#clean up to swap instead of asking for user input
-#also change from changing hex to switching relay (serial com with Nucleo, control through Nucleo)
-def run_charger_app(config: RemoteNodeMonitorConfig):
-    import subprocess
-
-    print("Insert 1 to turn charger on, 2 to turn charger off.")
-    user_input = input("Insert: ")
-
-    if user_input == "1":
-        program_command = f'sudo st-flash write /home/raspberryaoms/Documents/remote_node_monitor/nucleo_bin/remoteNodeMonitor_ChOn.bin 0x08000000'
-    elif user_input == "2":
-        program_command = f'sudo st-flash write /home/raspberryaoms/Documents/remote_node_monitor/nucleo_bin/remoteNodeMonitor.bin 0x08000000'
-    else:
-        print("Invalid input.")
-        exit(0)
-
-    out = subprocess.run(program_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-
-    if b'jolly' not in out.stdout:
-        out = subprocess.run(program_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-
-    print(out.stdout)

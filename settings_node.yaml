@@ -1,0 +1,20 @@
+#ONLY USE BOOLEAN VALUES OF "True" or "False"
+#Indicate the selected sensor with "True", all other sensors should have a value of "False"
+
+Node1:
+  ChargerEnable: True
+  SelectSens:
+    TMP107: True
+    x3TMP107: False
+    DS18B20: False
+    SHT30: False
+  NodeEnabled: True
+
+Node2:
+  ChargerEnable: True
+  SelectSens:
+    TMP107: True
+    x3TMP107: False
+    DS18B20: False
+    SHT30: False
+  NodeEnabled: True
