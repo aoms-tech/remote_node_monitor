@@ -18,18 +18,30 @@ class BEBoardConfig(DictAdaptable):
     Blues: BluesConfig
 
 
-class GoogleDriveConfig(DictAdaptable):
+class DigitalOceanConfig(DictAdaptable):
     Mode: int           # 1 = frequency, 2 = daily at X hour
     SyncFrequency: int
     ResetDailyTime: int
     LocalLogPath: str
     RemoteLogPath: str
+    AccessKey: str
+    SecretAccessKey: str
+    BucketName: str
+    Endpoint: str
+    Region: str
 
+class NodeSettings(DictAdaptable):
+    ChargerEnable: bool
+    TMP107: bool
+    x3TMP107: bool
+    DS18B20: bool
+    SHT30: bool
+    NodeEnabled: bool
 
 class RemoteNodeMonitorConfig(DictAdaptable):
     BluesTraceFrequencyMinutes: int
     Nucleo: SerialConfig
-    GoogleDrive: GoogleDriveConfig
+    DigitalOcean: DigitalOceanConfig
     Programmer: AVRDudeConfig
     Skyla1: BEBoardConfig
     Creed1: BEBoardConfig
