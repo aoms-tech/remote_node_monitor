@@ -1,13 +1,14 @@
-#define Pi <--> Nucleo UART com consts
+# define Pi <--> Nucleo UART com consts
+
 SKYLA1_PREFIX: str = "S1|"
 SKYLA2_PREFIX: str = "S2|"
 CREED1_PREFIX: str = "C1|"
 CREED2_PREFIX: str = "C2|"
 
-#DEV 1 => Skyla 1
-#DEV 2 => Skyla 2
-#DEV 3 => Creed 1
-#DEV 4 => Creed 2
+# DEV 1 => Skyla 1
+# DEV 2 => Skyla 2
+# DEV 3 => Creed 1
+# DEV 4 => Creed 2
 SETMODE_OBSERVE: bytes = b'a'
 SETMODE_VALIDATE: bytes = b'b'
 SETMODE_MOLLY_DEV1: bytes = b'c'
@@ -49,10 +50,12 @@ from lib.external.mCommon3.service.avrdude_service import program_board
 
 
 # done :D
+# schedule to run on start, always restart UNTIL successful run
+# schedule ALL other toaster services to run AFTER this service has been ran
 def run_init(config: RemoteNodeMonitorConfig):
     data = yaml.safe_load("settings_node.yaml")
 
-    config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud)
+    config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
@@ -63,6 +66,8 @@ def run_init(config: RemoteNodeMonitorConfig):
         select_sensor(config, node, data)
         set_node_state(config, node, data)
         print(f"Node{node} initialization completed.")
+
+    config.Nucleo.Serial.close()
 
 
 # done :D
@@ -75,7 +80,15 @@ def set_node_state(config: RemoteNodeMonitorConfig, node: int, data: dict):
         node_state_message = "OFF"
     config.Nucleo.Serial.write(SETMODE_SET_CHG_STATE)
     config.Nucleo.Serial.write(bytes(node) + node_state)
-    print(f"Settings state for Node{node} to {node_state_message}")
+
+    line = config.Nucleo.Serial.readline()
+    if line:
+        print(line)
+        line = line.decode('utf-8').strip()
+        if line == "Power State Set ":
+            print(f"Settings state for Node{node} to {node_state_message} successful")
+    else:
+        print(f"Setting state for Node{node} error")
 
 
 # done :D
@@ -103,6 +116,7 @@ def run_charger_app(config: RemoteNodeMonitorConfig, node: int, data: dict):
     print(f"Settings charger for Node{node} to {charger_state_message}")
 
 
+# done no changes
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     formatter = logging.Formatter('%(asctime)s %(message)s')
     if rotating:
@@ -124,7 +138,8 @@ def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     return logger
 
 
-def run_monitor_application(config: RemoteNodeMonitorConfig):
+# done no changes
+def run_observer_application(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
@@ -158,67 +173,56 @@ def run_monitor_application(config: RemoteNodeMonitorConfig):
                 creed2_logger.info(line[3:])
 
 
-#change to S3 bucket and change service scheduler to crontab
-def run_drive_sync_application(config: RemoteNodeMonitorConfig):
-    from pyrclone import Rclone
-    from pyrclone import RcloneError
+# change to S3 bucket and change service scheduler to crontab
+def run_sync_application(config: RemoteNodeMonitorConfig):
     import os
+    import boto3
+    import botocore
 
-    logger = setup_logger('rclone_logger', config.GoogleDrive.LocalLogPath+'/ggl_dr_sync.log')
-    logger.info("Starting google drive sync script ...")
+    session = boto3.session.Session()
+    client = session.client(
+        's3',
+        config=botocore.config.Config(s3={'addressing_style': 'virtual'}),
+        region_name=config.DigitalOcean.Region,
+        endpoint_url=config.DigitalOcean.Endpoint,
+        aws_access_key_id=os.getenv(config.DigitalOcean.AccessKey),
+        aws_secret_access_key=os.getenv(config.DigitalOcean.SecretAccessKey)
+    )
 
-    if config.GoogleDrive.Mode == 1:
-        timer_start = time.time()
-        while 1:
-            if time.time() - timer_start > config.GoogleDrive.SyncFrequency:
-                output = Rclone().copy(config.GoogleDrive.LocalLogPath, config.GoogleDrive.RemoteLogPath)
+    logger = setup_logger('DO_logger', config.DigitalOcean.LocalLogPath + '/digital_ocean_sync.log')
+    logger.info("Starting Digital Ocean sync script ...")
 
-                if output.return_code is not RcloneError.SUCCESS:
-                    logger.info(output.error)
-                else:
-                    for f in os.listdir(config.GoogleDrive.LocalLogPath):
-                        if f[0].isnumeric():
-                            os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
-                    logger.info("Google drive updated.")
-                timer_start = time.time()
+    try:
+        #throws exception if upload not success, no return on successful upload
+        client.upload_file(
+            Filename="G:/My Drive/Desktop/" + config.DigitalOcean.LocalLogPath,  # local filename
+            Bucket=config.DigitalOcean.BucketName,  # pucket name
+            Key= config.DigitalOcean.RemoteLogPath # path in DO bucket path
+        )
+    except FileNotFoundError:
+        print("File to be uploaded was not found")
+        return
+    except Exception as e:
+        logger.exception(e)
+        print("An exception occurred")
+        return
 
-            file_list = os.listdir(config.GoogleDrive.LocalLogPath)
-            filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
-            if filtered_file_list:
-                for file in filtered_file_list:
-                    new_filename = file[-8:] + "_" + file[:-9]
-                    logger.info(f"Renaming {file} to {new_filename}")
-                    os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
-                              os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
-    elif config.GoogleDrive.Mode == 2:
-        last_date_synced = ""
-        logger.info(datetime.datetime.now().hour)
-        while 1:
-            current_date = datetime.datetime.now()
-            if current_date.day != last_date_synced:
-                if current_date.hour == config.GoogleDrive.ResetDailyTime:
-                    last_date_synced = current_date.day
-                    output = Rclone().copy(config.GoogleDrive.LocalLogPath, config.GoogleDrive.RemoteLogPath)
+    for f in os.listdir(config.DigitalOcean.LocalLogPath):
+        if f[0].isnumeric():
+            os.remove(os.path.join(config.DigitalOcean.LocalLogPath, f))
+    logger.info("Digital Ocean updated.")
 
-                    if output.return_code is not RcloneError.SUCCESS:
-                        logger.info(output.error)
-                    else:
-                        for f in os.listdir(config.GoogleDrive.LocalLogPath):
-                            if f[0].isnumeric():
-                                os.remove(os.path.join(config.GoogleDrive.LocalLogPath, f))
-                        logger.info("Google drive updated.")
-
-            file_list = os.listdir(config.GoogleDrive.LocalLogPath)
-            filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
-            if filtered_file_list:
-                for file in filtered_file_list:
-                    new_filename = file[-8:] + "_" + file[:-9]
-                    logger.info(f"Renaming {file} to {new_filename}")
-                    os.rename(os.path.join(config.GoogleDrive.LocalLogPath, file),
-                              os.path.join(config.GoogleDrive.LocalLogPath, new_filename))
+    file_list = os.listdir(config.DigitalOcean.LocalLogPath)
+    filtered_file_list = [file for file in file_list if file[-1].isnumeric()]
+    if filtered_file_list:
+        for file in filtered_file_list:
+            new_filename = file[-8:] + "_" + file[:-9]
+            logger.info(f"Renaming {file} to {new_filename}")
+            os.rename(os.path.join(config.DigitalOcean.LocalLogPath, file),
+                      os.path.join(config.DigitalOcean.LocalLogPath, new_filename))
 
 
-#done
+# done
 def suspend_services():
     import subprocess
 
@@ -231,7 +235,7 @@ def suspend_services():
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
 
-#done
+# done
 def resume_services():
     import subprocess
 
@@ -244,7 +248,7 @@ def resume_services():
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
 
-#done
+# done
 def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
     programming_attempts = 2
     print(f"Programming {brd_name}")
@@ -269,9 +273,8 @@ def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
                     print(f"Attempting program again ... {p + 1}/{programming_attempts}")
 
 
-#need to re-run init after programming or molly
+# done
 def run_programming_application(config: RemoteNodeMonitorConfig):
-
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
@@ -287,7 +290,6 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
             if line == "Ready to program Sklya1":
                 config.Programmer.HexPath = config.Skyla1.ProgrammingHexPath
                 run_programming_sequence(config, 'Skyla1')
-                run_reset_application(config, NODE1)
         else:
             print("Read error")
         config.Nucleo.Serial.write(PI_PROCESS_FIN)
@@ -301,7 +303,6 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
             if line == "Ready to program Sklya1":
                 config.Programmer.HexPath = config.Creed1.ProgrammingHexPath
                 run_programming_sequence(config, 'Creed1')
-                run_reset_application(config, NODE1)
         else:
             print("Read error")
         config.Nucleo.Serial.write(PI_PROCESS_FIN)
@@ -315,7 +316,6 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
             if line == "Ready to program Sklya1":
                 config.Programmer.HexPath = config.Skyla2.ProgrammingHexPath
                 run_programming_sequence(config, 'Skyla2')
-                run_reset_application(config, NODE2)
         else:
             print("Read error")
         config.Nucleo.Serial.write(PI_PROCESS_FIN)
@@ -329,7 +329,6 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
             if line == "Ready to program Sklya1":
                 config.Programmer.HexPath = config.Creed2.ProgrammingHexPath
                 run_programming_sequence(config, 'Creed2')
-                run_reset_application(config, NODE2)
         else:
             print("Read error")
         config.Nucleo.Serial.write(PI_PROCESS_FIN)
@@ -337,46 +336,27 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
     resume_services()
     print("Application complete. Resuming normal operation.")
 
-#schedule this job using cron
-#remove relayhat
-def run_controller_application(config: RemoteNodeMonitorConfig):
+
+# done, schedule using cron
+def run_blues_observer_application(config: RemoteNodeMonitorConfig):
     import subprocess
-    import piplates.RELAYplate as RelayHat
     from serial.tools import list_ports
 
-
-    #is this necessary?
-    # Set off state for relays
-    RelayHat.relayOFF(0, 1)     # Skyla1 UPDI
-    RelayHat.relayOFF(0, 2)     # Creed1 UPDI
-    RelayHat.relayOFF(0, 3)     # Skyla2 UPDI
-    RelayHat.relayOFF(0, 4)     # Creed2 UPDI
-    RelayHat.relayOFF(0, 5)     # Skyla1 and Skyla2 pwr_en
-    RelayHat.relayOFF(0, 6)     # Radio Module 1
-    RelayHat.relayOFF(0, 7)     # Radio Module 2
-
-    print("Waiting 10 seconds before starting up skyla ...")
-    for i in range(1, 11):
-        print(f"Progress: {i}/10 seconds", end='\r')
-        time.sleep(1)
-
     # Blues logger setup
-    blues1_logger = setup_logger('blues_logger1', config.GoogleDrive.LocalLogPath + '/blues1.log')
-    blues2_logger = setup_logger('blues_logger2', config.GoogleDrive.LocalLogPath + '/blues2.log')
+    blues1_logger = setup_logger('blues_logger1', config.DigitalOcean.LocalLogPath + '/blues1.log')
+    blues2_logger = setup_logger('blues_logger2', config.DigitalOcean.LocalLogPath + '/blues2.log')
     blues1_logger.info("Starting blues notecard 1 logging script ...")
     blues2_logger.info("Starting blues notecard 2 logging script ...")
 
     # Find blues module serial ports
     ports_before_list = list_ports.comports()
-    RelayHat.relayON(0, 5)      # Skyla1 and Skyla2 pwr_en
-    RelayHat.relayON(0, 6)      # Radio Module 1
+
     time.sleep(2)
     ports_middle_list = list_ports.comports()
     for port in ports_middle_list:
         if port not in ports_before_list:
             config.Creed1.Blues.Serial.Port = port.device
 
-    RelayHat.relayON(0, 7)      # Radio Module 2
     time.sleep(2)
     ports_end_list = list_ports.comports()
     for port in ports_end_list:
@@ -412,40 +392,36 @@ def run_controller_application(config: RemoteNodeMonitorConfig):
     reset_command = f'sudo st-flash reset'
     subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
-    start_time = time.time()
-    while 1:
-        if time.time() - start_time > (config.BluesTraceFrequencyMinutes*60):
-            blues1_logger.info("Sending trace message again ----------------------------------------------------------")
-            blues2_logger.info("Sending trace message again ----------------------------------------------------------")
-            config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
-            config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdmmax", "mode":"on"}\r\n')
-            start_time = time.time()
+    blues1_logger.info("Sending trace message again ----------------------------------------------------------")
+    blues2_logger.info("Sending trace message again ----------------------------------------------------------")
+    config.Creed1.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdm max", "mode":"on"}\r\n')
+    config.Creed2.Blues.Serial.Serial.write(b'{"req":"card.trace","trace":"+mdm max", "mode":"on"}\r\n')
 
-        blues1_line = config.Creed1.Blues.Serial.Serial.readline()
-        blues2_line = config.Creed2.Blues.Serial.Serial.readline()
+    blues1_line = config.Creed1.Blues.Serial.Serial.readline()
+    blues2_line = config.Creed2.Blues.Serial.Serial.readline()
 
-        if blues1_line:
-            blues1_logger.info(blues1_line)
-        if blues2_line:
-            blues2_logger.info(blues2_line)
+    if blues1_line:
+        blues1_logger.info(blues1_line)
+    if blues2_line:
+        blues2_logger.info(blues2_line)
 
 
-#done
+# done
 def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
-
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=10)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
     config.Nucleo.Serial.write(SETMODE_SET_DEV_PWR)
     config.Nucleo.Serial.write(node + CYCLE)
-    #waits for Node to be powered ON, Nucleo waits 30seconds before powering ON when power cycling
+    # waits for Node to be powered ON, Nucleo waits 30seconds before powering ON when power cycling
     for i in range(30):
         print(f"Progress: {i}/30 seconds", end='\r')
         time.sleep(1)
 
     if node != NODE1 or NODE2 or BOTH:
         print("Invalid Node selection")
+        return
     else:
         if node == NODE1 or BOTH:
             line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
@@ -454,44 +430,32 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
             line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
             print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
 
+    run_init(config, )
     print("Power cycle complete.")
 
 
-#not used
-def run_init_relays():
-    import piplates.RELAYplate as RelayHat
-
-    RelayHat.relayOFF(0, 1)     # Skyla1 UPDI
-    RelayHat.relayOFF(0, 2)     # Creed1 UPDI
-    RelayHat.relayOFF(0, 3)     # Skyla2 UPDI
-    RelayHat.relayOFF(0, 4)     # Creed2 UPDI
-    RelayHat.relayON(0, 5)      # Skyla1 and Skyla2 pwr_en
-    RelayHat.relayOFF(0, 6)     # Radio Module 1
-    RelayHat.relayOFF(0, 7)     # Radio Module 2
-
-
-#done
+# done
 def get_info_table(b, a):
     spacer_amount = 45
 
     headings = ['INFORMATION', 'BEFORE', 'AFTER']
     string = (headings[0] + (" " * (spacer_amount - len(headings[0]))) + headings[1] + (
-                " " * (spacer_amount - len(headings[1]))) + headings[2] + '\n')
+            " " * (spacer_amount - len(headings[1]))) + headings[2] + '\n')
     for key in b:
         if type(b[key]) == dict:
             for nested_key in b[key]:
                 intro = key + '/' + nested_key + ":"
                 string += intro + (" " * (spacer_amount - len(intro))) + str(b[key][nested_key]) + (
-                            " " * (spacer_amount - len(str(b[key][nested_key])))) + "%s\n" % a[key][nested_key]
+                        " " * (spacer_amount - len(str(b[key][nested_key])))) + "%s\n" % a[key][nested_key]
         else:
             intro = key + ":"
             string += intro + (" " * (spacer_amount - len(intro))) + str(b[key]) + (
-                        " " * (spacer_amount - len(str(b[key])))) + "%s\n" % a[key]
+                    " " * (spacer_amount - len(str(b[key])))) + "%s\n" % a[key]
 
     return string
 
 
-#done
+# done
 def run_molly(config: RemoteNodeMonitorConfig):
     from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
     from lib.external.mCommon3.service.skyla_service import update_keys_dataframe_from_vault, generate_skyla_payload
@@ -509,7 +473,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
-    molly_logger_file_name = config.GoogleDrive.LocalLogPath + datetime.datetime.now().strftime(
+    molly_logger_file_name = config.DigitalOcean.LocalLogPath + datetime.datetime.now().strftime(
         "/%Y%m%d_%H%M%S_molly.log")
     molly_logger = setup_logger("molly_logger", molly_logger_file_name, rotating=1)
 
@@ -556,6 +520,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
                     if "molly complete" in line:
                         break
+        run_reset_application(config, NODE1)
 
         molly_logger.info(
             "=== SKYLA1 MOLLY OUTPUT ============================================================================"
@@ -604,6 +569,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
                     if "molly complete" in line:
                         break
+        run_reset_application(config, NODE2)
 
         molly_logger.info(
             "=== SKYLA2 MOLLY OUTPUT ============================================================================"
@@ -611,4 +577,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info(get_info_table(skyla2_dict["B"], skyla2_dict["A"]))
         molly_logger.info("Done Mollying Skyla2.")
 
-    molly_logger.info("Exiting. Please reset Pi now.")
+    config.Nucleo.Serial.close()
+    run_init(config)
+
+    molly_logger.info("Exiting. Resetting Node now.")
