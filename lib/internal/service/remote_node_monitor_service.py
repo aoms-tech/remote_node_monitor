@@ -29,7 +29,7 @@ BOTH: bytes = b'0'
 NODE1: bytes = b'1'
 NODE2: bytes = b'2'
 
-PI_PROCESS_FIN: bytes = b'`'
+PROCESS_FIN: bytes = b'`'
 
 SERVICES = {
     'remoteNodeMonitor.service',
@@ -42,10 +42,8 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
 import time
-import yaml
 
-from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig
-
+from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig, NodeSettings
 from lib.external.mCommon3.service.avrdude_service import program_board
 
 
@@ -53,67 +51,87 @@ from lib.external.mCommon3.service.avrdude_service import program_board
 # schedule to run on start, always restart UNTIL successful run
 # schedule ALL other toaster services to run AFTER this service has been ran
 def run_init(config: RemoteNodeMonitorConfig):
-    data = yaml.safe_load("settings_node.yaml")
-
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
-    for node in [1, 2]:
-        data = data[f"Node{node}"]
-
-        run_charger_app(config, node, data)
-        select_sensor(config, node, data)
-        set_node_state(config, node, data)
-        print(f"Node{node} initialization completed.")
+    node_num = 1
+    for node in [config.Node1, config.Node2]:
+        run_charger_app(config, node, node_num)
+        set_node_state(config, node, node_num)
+        select_sensor(config, node, node_num)
+        print(f"Node{node_num} initialization completed.")
+        node_num += 1
 
     config.Nucleo.Serial.close()
 
 
 # done :D
-def set_node_state(config: RemoteNodeMonitorConfig, node: int, data: dict):
-    if data["NodeEnabled"]:
+def set_node_state(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
+    if node.NodeEnabled:
         node_state = ON
         node_state_message = "ON"
     else:
         node_state = OFF
         node_state_message = "OFF"
-    config.Nucleo.Serial.write(SETMODE_SET_CHG_STATE)
-    config.Nucleo.Serial.write(bytes(node) + node_state)
+        
+    for data in [SETMODE_SET_DEV_PWR, str(node_num).encode(), node_state]:
+        config.Nucleo.Serial.write(data)
+        time.sleep(0.01)
+
+    print(f"Settings state for Node{node_num} to {node_state_message}")
+    time.sleep(1)
 
     line = config.Nucleo.Serial.readline()
     if line:
-        print(line)
         line = line.decode('utf-8').strip()
-        if line == "Power State Set ":
-            print(f"Settings state for Node{node} to {node_state_message} successful")
+        if line == "Power Set":
+            print(f"Settings state for Node{node_num} to {node_state_message} successful")
     else:
-        print(f"Setting state for Node{node} error")
+        print(f"Setting state for Node{node_num} error")
 
 
 # done :D
-def select_sensor(config: RemoteNodeMonitorConfig, node: int, data: dict):
+def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
     sensor_address = 0
-    for sensor_is_selected in data["SelectSens"]:
-        if sensor_is_selected:
-            config.Nucleo.Serial.write(SETMODE_SENS_SELECT)
-            config.Nucleo.Serial.write(bytes(node) + bytes(sensor_address))
+    for sensor_selected in node.SelectSens:
+        if node.SelectSens[sensor_selected]:
+            for data in [SETMODE_SENS_SELECT, str(node_num).encode(), str(sensor_address).encode()]:
+                config.Nucleo.Serial.write(data)
+                time.sleep(0.01)
+            print(f"Setting sensor for Node{node_num} to {sensor_selected}")
             break
         sensor_address += 1
-    print(f"Setting sensor for Node{node} to {data['SelectSens'][sensor_address]}")
+
+    line = config.Nucleo.Serial.readline()
+    if line:
+        line = line.decode('utf-8').strip()
+        if line == "Sensor Selected":
+            print(f"Settings Sensor for Node{node_num} to Sensor{sensor_address} successful")
+    else:
+        print(f"Setting Sensor for Node{node_num} error")
 
 
 # done :D
-def run_charger_app(config: RemoteNodeMonitorConfig, node: int, data: dict):
-    if data["ChargerEnable"]:
+def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
+    if node.ChargerEnable:
         charger_state = ON
         charger_state_message = "ON"
     else:
         charger_state = OFF
         charger_state_message = "OFF"
-    config.Nucleo.Serial.write(SETMODE_SET_CHG_STATE)
-    config.Nucleo.Serial.write(bytes(node) + charger_state)
-    print(f"Settings charger for Node{node} to {charger_state_message}")
+    for data in [SETMODE_SET_CHG_STATE, str(node_num).encode(), charger_state]:
+        config.Nucleo.Serial.write(data)
+        time.sleep(0.01)
+    print(f"Settings charger for Node{node_num} to {charger_state_message}")
+
+    line = config.Nucleo.Serial.readline()
+    if line:
+        line = line.decode('utf-8').strip()
+        if line == "Charger State Set":
+            print(f"Settings charger state for Node{node_num} to {charger_state_message} successful")
+    else:
+        print(f"Setting charger state for Node{node_num} error")
 
 
 # done no changes
@@ -185,20 +203,22 @@ def run_sync_application(config: RemoteNodeMonitorConfig):
         config=botocore.config.Config(s3={'addressing_style': 'virtual'}),
         region_name=config.DigitalOcean.Region,
         endpoint_url=config.DigitalOcean.Endpoint,
-        aws_access_key_id=os.getenv(config.DigitalOcean.AccessKey),
-        aws_secret_access_key=os.getenv(config.DigitalOcean.SecretAccessKey)
+        aws_access_key_id=config.DigitalOcean.AccessKey,
+        aws_secret_access_key=config.DigitalOcean.SecretAccessKey
     )
 
     logger = setup_logger('DO_logger', config.DigitalOcean.LocalLogPath + '/digital_ocean_sync.log')
     logger.info("Starting Digital Ocean sync script ...")
 
     try:
-        #throws exception if upload not success, no return on successful upload
-        client.upload_file(
-            Filename="G:/My Drive/Desktop/" + config.DigitalOcean.LocalLogPath,  # local filename
-            Bucket=config.DigitalOcean.BucketName,  # pucket name
-            Key= config.DigitalOcean.RemoteLogPath # path in DO bucket path
-        )
+        for files in os.listdir(config.DigitalOcean.LocalLogPath):
+            print(files)
+            #throws exception if upload not success, no return on successful upload
+            client.upload_file(
+                Filename=config.DigitalOcean.LocalLogPath + "/" + files,  # local filename
+                Bucket=config.DigitalOcean.BucketName,  # bucket name
+                Key= config.DigitalOcean.RemoteObserverLogPath + "/" + files # path in DO bucket path
+            )
     except FileNotFoundError:
         print("File to be uploaded was not found")
         return
@@ -292,7 +312,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
                 run_programming_sequence(config, 'Skyla1')
         else:
             print("Read error")
-        config.Nucleo.Serial.write(PI_PROCESS_FIN)
+        config.Nucleo.Serial.write(PROCESS_FIN)
 
     if config.Creed1.Program:
         config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV3)
@@ -305,7 +325,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
                 run_programming_sequence(config, 'Creed1')
         else:
             print("Read error")
-        config.Nucleo.Serial.write(PI_PROCESS_FIN)
+        config.Nucleo.Serial.write(PROCESS_FIN)
 
     if config.Skyla2.Program:
         config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV2)
@@ -318,7 +338,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
                 run_programming_sequence(config, 'Skyla2')
         else:
             print("Read error")
-        config.Nucleo.Serial.write(PI_PROCESS_FIN)
+        config.Nucleo.Serial.write(PROCESS_FIN)
 
     if config.Creed2.Program:
         config.Nucleo.Serial.write(SETMODE_PROGRAM_DEV4)
@@ -331,7 +351,7 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
                 run_programming_sequence(config, 'Creed2')
         else:
             print("Read error")
-        config.Nucleo.Serial.write(PI_PROCESS_FIN)
+        config.Nucleo.Serial.write(PROCESS_FIN)
 
     resume_services()
     print("Application complete. Resuming normal operation.")
@@ -413,24 +433,28 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     config.Nucleo.Serial.open()
 
     config.Nucleo.Serial.write(SETMODE_SET_DEV_PWR)
-    config.Nucleo.Serial.write(node + CYCLE)
+    config.Nucleo.Serial.write(node)
+    config.Nucleo.Serial.write(CYCLE)
     # waits for Node to be powered ON, Nucleo waits 30seconds before powering ON when power cycling
     for i in range(30):
         print(f"Progress: {i}/30 seconds", end='\r')
         time.sleep(1)
 
-    if node != NODE1 or NODE2 or BOTH:
+    node = node.decode('utf-8')
+    node1 = NODE1.decode('utf-8')
+    node2 = NODE2.decode('utf-8')
+    both = BOTH.decode('utf-8')
+
+    if node != (node1 or node2 or both):
         print("Invalid Node selection")
-        return
     else:
-        if node == NODE1 or BOTH:
+        if node == node1 or both:
             line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
             print("Device1 ON") if "Dev1 ON" in line_n1 else print("Device1 OFF")
-        if node == NODE2 or BOTH:
+        if node == node2 or both:
             line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
             print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
-
-    run_init(config, )
+    run_init(config)
     print("Power cycle complete.")
 
 

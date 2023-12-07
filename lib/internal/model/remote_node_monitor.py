@@ -23,7 +23,7 @@ class DigitalOceanConfig(DictAdaptable):
     SyncFrequency: int
     ResetDailyTime: int
     LocalLogPath: str
-    RemoteLogPath: str
+    RemoteObserverLogPath: str
     AccessKey: str
     SecretAccessKey: str
     BucketName: str
@@ -32,10 +32,7 @@ class DigitalOceanConfig(DictAdaptable):
 
 class NodeSettings(DictAdaptable):
     ChargerEnable: bool
-    TMP107: bool
-    x3TMP107: bool
-    DS18B20: bool
-    SHT30: bool
+    SelectSens: dict
     NodeEnabled: bool
 
 class RemoteNodeMonitorConfig(DictAdaptable):

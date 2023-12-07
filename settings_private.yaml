@@ -19,11 +19,11 @@ Creed2:
 DigitalOcean:
   LocalLogPath: /home/raspberryaoms/Documents/remote_node_monitor/logs
   RemoteObserverLogPath: Logs/Observer
-  BucketName: toaster-dev
-  Region: nyc3
-  Endpoint: 'https://nyc3.digitaloceanspaces.com'
-  Access_Key: "DO00Y9H4L7NAMCXZBL72"
-  Secret_Access_Key: "7JD99xkK3TTFdnfTZzBogLmiWqwxRqxSK7zeyRvv1tQ"
+  BucketName: "toaster-dev"
+  Region: "nyc3"
+  Endpoint: "https://nyc3.digitaloceanspaces.com"
+  AccessKey: "DO00Y9H4L7NAMCXZBL72"
+  SecretAccessKey: "7JD99xkK3TTFdnfTZzBogLmiWqwxRqxSK7zeyRvv1tQ"
 
 Nucleo:
   Port: '/dev/ttyAMA0'
