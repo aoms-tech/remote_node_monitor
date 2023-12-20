@@ -7,6 +7,7 @@ from lib.external.mCommon3.model.skyla import SkylaConfig
 
 class BluesConfig(DictAdaptable):
     Serial: SerialConfig
+    USBPort: str
 
 
 class BEBoardConfig(DictAdaptable):
@@ -24,16 +25,24 @@ class DigitalOceanConfig(DictAdaptable):
     ResetDailyTime: int
     LocalLogPath: str
     RemoteObserverLogPath: str
+    RemoteSettingPath: str
+    DeviceID: str
     AccessKey: str
     SecretAccessKey: str
     BucketName: str
     Endpoint: str
     Region: str
 
+
 class NodeSettings(DictAdaptable):
     ChargerEnable: bool
     SelectSens: dict
     NodeEnabled: bool
+
+
+class TimerSettings(DictAdaptable):
+    LastModified: str
+
 
 class RemoteNodeMonitorConfig(DictAdaptable):
     BluesTraceFrequencyMinutes: int
@@ -46,3 +55,4 @@ class RemoteNodeMonitorConfig(DictAdaptable):
     Creed2: BEBoardConfig
     Node1: NodeSettings
     Node2: NodeSettings
+    ServiceTimerSettings: TimerSettings

@@ -4,3 +4,4 @@ SettingsFiles:
   - settings_programmer
   - settings_molly
   - settings_node
+  - settings_service_timer

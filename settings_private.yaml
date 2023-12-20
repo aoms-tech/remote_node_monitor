@@ -4,6 +4,7 @@ Skyla1:
 Creed1:
   LogFilePath: /home/raspberryaoms/Documents/remote_node_monitor/logs/creed1.log
   Blues:
+    USBPort: "/dev/node1_blues"
     Serial:
       Baud: 115200
 
@@ -13,12 +14,15 @@ Skyla2:
 Creed2:
   LogFilePath: /home/raspberryaoms/Documents/remote_node_monitor/logs/creed2.log
   Blues:
+    USBPort: "/dev/node2_blues"
     Serial:
       Baud: 115200
 
 DigitalOcean:
-  LocalLogPath: /home/raspberryaoms/Documents/remote_node_monitor/logs
-  RemoteObserverLogPath: Logs/Observer
+  LocalLogPath: /home/raspberryaoms/Documents/remote_node_monitor/logs/
+  RemoteObserverLogPath: Logs/Observer/
+  RemoteSettingPath: Settings/
+  DeviceID: "000000"
   BucketName: "toaster-dev"
   Region: "nyc3"
   Endpoint: "https://nyc3.digitaloceanspaces.com"

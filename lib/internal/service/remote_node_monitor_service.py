@@ -31,13 +31,16 @@ NODE2: bytes = b'2'
 
 PROCESS_FIN: bytes = b'`'
 
-SERVICES = {
-    'remoteNodeMonitor.service',
-    'remoteNodeMonitorSync.service',
-    'remoteNodeMonitorRelayInit.service'
-}
+SERVICES_FILE_PATH = "/etc/systemd/system/"
 
-import datetime
+SERVICES = [
+    'toasterRunInit',
+    'toasterObserver',
+    'toasterBluesObserver',
+    'toasterLogSync',
+    'toasterServiceTimerSetting'
+]
+
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
@@ -47,9 +50,6 @@ from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig, Node
 from lib.external.mCommon3.service.avrdude_service import program_board
 
 
-# done :D
-# schedule to run on start, always restart UNTIL successful run
-# schedule ALL other toaster services to run AFTER this service has been ran
 def run_init(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
@@ -57,16 +57,15 @@ def run_init(config: RemoteNodeMonitorConfig):
 
     node_num = 1
     for node in [config.Node1, config.Node2]:
+        select_sensor(config, node, node_num)
         run_charger_app(config, node, node_num)
         set_node_state(config, node, node_num)
-        select_sensor(config, node, node_num)
         print(f"Node{node_num} initialization completed.")
         node_num += 1
 
     config.Nucleo.Serial.close()
 
 
-# done :D
 def set_node_state(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
     if node.NodeEnabled:
         node_state = ON
@@ -74,14 +73,13 @@ def set_node_state(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num
     else:
         node_state = OFF
         node_state_message = "OFF"
-        
+
     for data in [SETMODE_SET_DEV_PWR, str(node_num).encode(), node_state]:
         config.Nucleo.Serial.write(data)
         time.sleep(0.01)
-
     print(f"Settings state for Node{node_num} to {node_state_message}")
-    time.sleep(1)
 
+    config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
     if line:
         line = line.decode('utf-8').strip()
@@ -91,7 +89,6 @@ def set_node_state(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num
         print(f"Setting state for Node{node_num} error")
 
 
-# done :D
 def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
     sensor_address = 0
     for sensor_selected in node.SelectSens:
@@ -103,6 +100,7 @@ def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num:
             break
         sensor_address += 1
 
+    config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
     if line:
         line = line.decode('utf-8').strip()
@@ -112,7 +110,6 @@ def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num:
         print(f"Setting Sensor for Node{node_num} error")
 
 
-# done :D
 def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num: int):
     if node.ChargerEnable:
         charger_state = ON
@@ -125,6 +122,7 @@ def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_nu
         time.sleep(0.01)
     print(f"Settings charger for Node{node_num} to {charger_state_message}")
 
+    config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
     if line:
         line = line.decode('utf-8').strip()
@@ -134,7 +132,6 @@ def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_nu
         print(f"Setting charger state for Node{node_num} error")
 
 
-# done no changes
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     formatter = logging.Formatter('%(asctime)s %(message)s')
     if rotating:
@@ -156,7 +153,6 @@ def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     return logger
 
 
-# done no changes
 def run_observer_application(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud)
     config.Nucleo.Serial.close()
@@ -191,7 +187,6 @@ def run_observer_application(config: RemoteNodeMonitorConfig):
                 creed2_logger.info(line[3:])
 
 
-# change to S3 bucket and change service scheduler to crontab
 def run_sync_application(config: RemoteNodeMonitorConfig):
     import os
     import boto3
@@ -215,9 +210,9 @@ def run_sync_application(config: RemoteNodeMonitorConfig):
             print(files)
             #throws exception if upload not success, no return on successful upload
             client.upload_file(
-                Filename=config.DigitalOcean.LocalLogPath + "/" + files,  # local filename
+                Filename=config.DigitalOcean.LocalLogPath + files,  # local filename
                 Bucket=config.DigitalOcean.BucketName,  # bucket name
-                Key= config.DigitalOcean.RemoteObserverLogPath + "/" + files # path in DO bucket path
+                Key=config.DigitalOcean.RemoteObserverLogPath + files # path in DO bucket path
             )
     except FileNotFoundError:
         print("File to be uploaded was not found")
@@ -242,7 +237,6 @@ def run_sync_application(config: RemoteNodeMonitorConfig):
                       os.path.join(config.DigitalOcean.LocalLogPath, new_filename))
 
 
-# done
 def suspend_services():
     import subprocess
 
@@ -255,7 +249,6 @@ def suspend_services():
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
 
-# done
 def resume_services():
     import subprocess
 
@@ -268,7 +261,6 @@ def resume_services():
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
 
 
-# done
 def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
     programming_attempts = 2
     print(f"Programming {brd_name}")
@@ -293,7 +285,6 @@ def run_programming_sequence(config: RemoteNodeMonitorConfig, brd_name):
                     print(f"Attempting program again ... {p + 1}/{programming_attempts}")
 
 
-# done
 def run_programming_application(config: RemoteNodeMonitorConfig):
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
@@ -357,7 +348,6 @@ def run_programming_application(config: RemoteNodeMonitorConfig):
     print("Application complete. Resuming normal operation.")
 
 
-# done, schedule using cron
 def run_blues_observer_application(config: RemoteNodeMonitorConfig):
     import subprocess
     from serial.tools import list_ports
@@ -368,34 +358,12 @@ def run_blues_observer_application(config: RemoteNodeMonitorConfig):
     blues1_logger.info("Starting blues notecard 1 logging script ...")
     blues2_logger.info("Starting blues notecard 2 logging script ...")
 
-    # Find blues module serial ports
-    ports_before_list = list_ports.comports()
-
-    time.sleep(2)
-    ports_middle_list = list_ports.comports()
-    for port in ports_middle_list:
-        if port not in ports_before_list:
-            config.Creed1.Blues.Serial.Port = port.device
-
-    time.sleep(2)
-    ports_end_list = list_ports.comports()
-    for port in ports_end_list:
-        if port not in ports_middle_list:
-            config.Creed2.Blues.Serial.Port = port.device
+    config.Creed1.Blues.Serial.Port = config.Creed1.Blues.USBPort
+    config.Creed2.Blues.Serial.Port = config.Creed2.Blues.USBPort
 
     if not config.Creed1.Blues.Serial.Port and not config.Creed2.Blues.Serial.Port:
         blues1_logger.info("No port found for both Blues cards. Exiting.")
         blues2_logger.info("No port found for both Blues cards. Exiting.")
-
-    if not config.Creed1.Blues.Serial.Port:
-        for port in ports_before_list:
-            if "ACM" in port.device:
-                config.Creed1.Blues.Serial.Port = port.device
-
-    if not config.Creed2.Blues.Serial.Port:
-        for port in ports_before_list:
-            if "ACM" in port.device:
-                config.Creed2.Blues.Serial.Port = port.device
 
     config.Creed1.Blues.Serial.Serial = serial.Serial(config.Creed1.Blues.Serial.Port, config.Creed1.Blues.Serial.Baud,
                                                       timeout=10)
@@ -421,12 +389,13 @@ def run_blues_observer_application(config: RemoteNodeMonitorConfig):
     blues2_line = config.Creed2.Blues.Serial.Serial.readline()
 
     if blues1_line:
+        print(blues1_line)
         blues1_logger.info(blues1_line)
     if blues2_line:
+        print(blues2_line)
         blues2_logger.info(blues2_line)
 
 
-# done
 def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=10)
     config.Nucleo.Serial.close()
@@ -436,8 +405,8 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     config.Nucleo.Serial.write(node)
     config.Nucleo.Serial.write(CYCLE)
     # waits for Node to be powered ON, Nucleo waits 30seconds before powering ON when power cycling
-    for i in range(30):
-        print(f"Progress: {i}/30 seconds", end='\r')
+    for i in range(10):
+        print(f"Progress: {i}/10 seconds", end='\r')
         time.sleep(1)
 
     node = node.decode('utf-8')
@@ -458,7 +427,6 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     print("Power cycle complete.")
 
 
-# done
 def get_info_table(b, a):
     spacer_amount = 45
 
@@ -479,7 +447,6 @@ def get_info_table(b, a):
     return string
 
 
-# done
 def run_molly(config: RemoteNodeMonitorConfig):
     from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
     from lib.external.mCommon3.service.skyla_service import update_keys_dataframe_from_vault, generate_skyla_payload
@@ -514,7 +481,6 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla1.Settings)
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
         molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
-        run_reset_application(config, NODE1)
         molly_logger.info("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(SETMODE_MOLLY_DEV1)
 
@@ -605,3 +571,69 @@ def run_molly(config: RemoteNodeMonitorConfig):
     run_init(config)
 
     molly_logger.info("Exiting. Resetting Node now.")
+
+
+def timer_serivce_update(config: RemoteNodeMonitorConfig):
+    import os
+    import boto3
+    import botocore
+    import subprocess
+    import yaml
+
+    session = boto3.session.Session()
+    client = session.client(
+        's3',
+        config=botocore.config.Config(s3={'addressing_style': 'virtual'}),
+        region_name=config.DigitalOcean.Region,
+        endpoint_url=config.DigitalOcean.Endpoint,
+        aws_access_key_id=config.DigitalOcean.AccessKey,
+        aws_secret_access_key=config.DigitalOcean.SecretAccessKey
+    )
+
+    object = client.get_object(
+        Bucket=config.DigitalOcean.BucketName,
+        Key=config.DigitalOcean.RemoteSettingPath + config.DigitalOcean.DeviceID + ".txt"
+    )
+
+    last_modified = str(object['LastModified'])
+
+    if not last_modified > str(config.ServiceTimerSettings.LastModified or "0"):
+        return
+
+    data = dict(
+        ServiceTimerSettings = dict(
+            LastModified = last_modified
+        )
+    )
+    with open('settings_service_timer.yaml', 'w') as outfile:
+        yaml.dump(data, outfile, default_flow_style=False)
+
+    timer_frequency = object['Body'].read().decode('utf-8').strip().split("frequency=", 1)[1]
+    print(timer_frequency)
+
+    new_file_content = ""
+    for service_name in [SERVICES[2], SERVICES[3]]:
+        file_path = SERVICES_FILE_PATH + service_name + '.timer'
+
+        print(file_path)
+        new_file_content = ""
+
+        file = open(file_path, 'r')
+        for line in file:
+            strip_line = line.strip()
+            new_line = ""
+            if "OnActiveSec" in strip_line:
+                new_line = "OnActiveSec=" + timer_frequency
+            else:
+                new_line = strip_line
+            new_file_content += new_line + "\n"
+
+        print(new_file_content)
+        file.close()
+
+        file_write = open(file_path, 'w')
+        file_write.write(new_file_content)
+        file_write.close()
+
+
+
