@@ -24,7 +24,7 @@ Skyla1:
       KeysPath: /home/raspberryaoms/Documents/remote_node_monitor/lib/external/flora-keys/vault/aoms_abp.csv
 
 Skyla2:
-  Molly: True
+  Molly: False
   Settings:
     DeviceID: 260A2007
     ExternalSensorFreq: 900

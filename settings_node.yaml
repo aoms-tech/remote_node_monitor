@@ -17,4 +17,4 @@ Node2:
     x3TMP107: False
     DS18B20: False
     SHT30: False
-  NodeEnabled: True
+  NodeEnabled: False

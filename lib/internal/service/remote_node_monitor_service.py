@@ -45,9 +45,11 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import serial
 import time
+import datetime
 
 from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig, NodeSettings
 from lib.external.mCommon3.service.avrdude_service import program_board
+from .molly_dataloader import generate_skyla_payload_batched
 
 
 def run_init(config: RemoteNodeMonitorConfig):
@@ -103,8 +105,7 @@ def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num:
     config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
     if line:
-        line = line.decode('utf-8').strip()
-        if line == "Sensor Selected":
+        if b'Sensor Selected' in line:
             print(f"Settings Sensor for Node{node_num} to Sensor{sensor_address} successful")
     else:
         print(f"Setting Sensor for Node{node_num} error")
@@ -122,15 +123,22 @@ def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_nu
         time.sleep(0.01)
     print(f"Settings charger for Node{node_num} to {charger_state_message}")
 
-    config.Nucleo.Serial.flush()
-    line = config.Nucleo.Serial.readline()
-    if line:
-        line = line.decode('utf-8').strip()
-        if line == "Charger State Set":
-            print(f"Settings charger state for Node{node_num} to {charger_state_message} successful")
-    else:
-        print(f"Setting charger state for Node{node_num} error")
+    garbled_counter = 0
+    max_garbled = 10
 
+    while garbled_counter < max_garbled:
+        try:
+            config.Nucleo.Serial.flush()
+            line = config.Nucleo.Serial.readline()
+            if line:
+                print(line)
+                if b'Charger State Set' in line:
+                    garbled_counter = 10
+                    print(f"Settings charger state for Node{node_num} to {charger_state_message} successful")
+        except:
+            garbled_counter + 1
+            print("garbled_counter:", garbled_counter)
+            
 
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
     formatter = logging.Formatter('%(asctime)s %(message)s')
@@ -413,16 +421,28 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     node1 = NODE1.decode('utf-8')
     node2 = NODE2.decode('utf-8')
     both = BOTH.decode('utf-8')
-
-    if node != (node1 or node2 or both):
-        print("Invalid Node selection")
-    else:
-        if node == node1 or both:
-            line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
-            print("Device1 ON") if "Dev1 ON" in line_n1 else print("Device1 OFF")
-        if node == node2 or both:
-            line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
-            print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
+    
+    
+    garbled_counter = 0
+    max_garbled = 10
+    while garbled_counter < max_garbled:
+        try:
+            if node != (node1 or node2 or both):
+                print("Invalid Node selection")
+            else:
+                if node == node1 or both:
+                    line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
+                    if "Dev1 ON" in line_n1:
+                        print("Device1 ON")
+                        garbled_counter = 10
+                    else:
+                        print("Device1 OFF")
+                    garbled_counter = 10
+                if node == node2 or both:
+                    line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
+                    print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
+        except:
+            garbled_counter + 1
     run_init(config)
     print("Power cycle complete.")
 
@@ -460,12 +480,13 @@ def run_molly(config: RemoteNodeMonitorConfig):
     out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
     print(out.stdout)
 
-    config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud)
+    config.Nucleo.Serial = serial.Serial(port=config.Nucleo.Port, baudrate=config.Nucleo.Baud, timeout=10)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
 
     molly_logger_file_name = config.DigitalOcean.LocalLogPath + datetime.datetime.now().strftime(
-        "/%Y%m%d_%H%M%S_molly.log")
+        "%Y%m%d_%H%M%S_molly.log")
+    print(molly_logger_file_name)
     molly_logger = setup_logger("molly_logger", molly_logger_file_name, rotating=1)
 
     if not config.Skyla1.Molly and not config.Skyla2.Molly:
@@ -481,6 +502,9 @@ def run_molly(config: RemoteNodeMonitorConfig):
         update_creed_settings(config.Skyla1.Settings)
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
         molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
+        batch_payload = generate_skyla_payload_batched(skyla1_payload)
+        print(batch_payload["id_and_keys"])
+        # exit()
         molly_logger.info("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(SETMODE_MOLLY_DEV1)
 
@@ -489,27 +513,44 @@ def run_molly(config: RemoteNodeMonitorConfig):
             "A": {}
         }
 
+        cheat = 1
         while 1:
-            line = config.Nucleo.Serial.readline()
+            try:
+                line = config.Nucleo.Serial.readline()
+            except serial.SerialException:
+                print(cheat, "time(s) readline")
+                cheat += 1
+                continue
             if line:
-                print(line)
+                # print("raw serial output", line)
                 try:
+                    orginal_line = line
                     line = line.decode('utf-8').strip()
+                    if "C1" not in line:
+                        time_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        print(time_now, " decoded: ", line)
+                    if "Looking" in line:
+                        print("raw: ", orginal_line)
                 except:
                     continue
                 else:
                     if SKYLA1_PREFIX in line:
                         try:
+                            # print("prefix in line")
                             contents = line.split("|")
                             skyla1_dict[contents[1]][contents[2]] = contents[3]
                         except:
                             continue
 
                     if "send payload" in line:
-                        config.Nucleo.Serial.write(skyla1_payload)
+                        print("sending payload")
+                        # config.Nucleo.Serial.write(skyla1_payload)
+                        config.Nucleo.Serial.write(batch_payload["settings"])
+                        # print("sent")
 
                     if "molly complete" in line:
                         break
+                        print("molly complete")
         run_reset_application(config, NODE1)
 
         molly_logger.info(
@@ -541,7 +582,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
         while 1:
             line = config.Nucleo.Serial.readline()
             if line:
-                print(line)
+                # print(line)
                 try:
                     line = line.decode('utf-8').strip()
                 except:
@@ -574,6 +615,8 @@ def run_molly(config: RemoteNodeMonitorConfig):
 
 
 def timer_serivce_update(config: RemoteNodeMonitorConfig):
+
+
     import os
     import boto3
     import botocore
@@ -598,6 +641,7 @@ def timer_serivce_update(config: RemoteNodeMonitorConfig):
     last_modified = str(object['LastModified'])
 
     if not last_modified > str(config.ServiceTimerSettings.LastModified or "0"):
+        print("No changes to service frequency. Exiting.")
         return
 
     data = dict(
@@ -631,9 +675,35 @@ def timer_serivce_update(config: RemoteNodeMonitorConfig):
         print(new_file_content)
         file.close()
 
-        file_write = open(file_path, 'w')
-        file_write.write(new_file_content)
-        file_write.close()
+        write_cmd = [
+            "file_write = open(file_path, 'w')",
+            "file_write.write(new_file_content)",
+            "file_write.close()",
+        ]
+
+        subprocess.run(['sudo', 'systemctl', 'disable', file_path], shell=True, stdin=subprocess.PIPE,
+                       stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+
+        process_1 = subprocess.run(['sudo', 'rm', file_path], shell=True, stdin=subprocess.PIPE,
+                       stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        print(process_1)
+        print(process_1.args)
+        print(process_1.returncode)
+        print(process_1.stdout)
+
+        for cmd in write_cmd:
+            process_1 = subprocess.run(['sudo', 'python3', cmd], shell=True, stdin=subprocess.PIPE,
+                        stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            print(process_1)
+            print(process_1.args)
+            print(process_1.returncode)
+            print(process_1.stdout)
+
+        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], shell=True, stdin=subprocess.PIPE,
+                       stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+
+
+
 
 
 
