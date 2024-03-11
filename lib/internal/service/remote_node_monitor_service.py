@@ -49,10 +49,17 @@ import datetime
 
 from lib.internal.model.remote_node_monitor import RemoteNodeMonitorConfig, NodeSettings
 from lib.external.mCommon3.service.avrdude_service import program_board
-from .molly_dataloader import generate_skyla_payload_batched
+from .molly_dataloader import generate_skyla_payload_batched, generate_skyla_payload_batched_concated
 
 
 def run_init(config: RemoteNodeMonitorConfig):
+    import subprocess
+    
+    reset_command = f'sudo st-flash reset'
+    out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+    print(out.stdout)
+    time.sleep(5)
+    
     config.Nucleo.Serial = serial.Serial(config.Nucleo.Port, config.Nucleo.Baud, timeout=30)
     config.Nucleo.Serial.close()
     config.Nucleo.Serial.open()
@@ -81,13 +88,13 @@ def set_node_state(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num
         time.sleep(0.01)
     print(f"Settings state for Node{node_num} to {node_state_message}")
 
-    config.Nucleo.Serial.flush()
+    # config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
     if line:
-        line = line.decode('utf-8').strip()
-        if line == "Power Set":
+        if b"Power Set" in line:
             print(f"Settings state for Node{node_num} to {node_state_message} successful")
     else:
+        print(line)
         print(f"Setting state for Node{node_num} error")
 
 
@@ -102,12 +109,14 @@ def select_sensor(config: RemoteNodeMonitorConfig, node: NodeSettings, node_num:
             break
         sensor_address += 1
 
-    config.Nucleo.Serial.flush()
+    # config.Nucleo.Serial.flush()
     line = config.Nucleo.Serial.readline()
+    print(line)
     if line:
         if b'Sensor Selected' in line:
             print(f"Settings Sensor for Node{node_num} to Sensor{sensor_address} successful")
     else:
+        print(line)
         print(f"Setting Sensor for Node{node_num} error")
 
 
@@ -123,21 +132,12 @@ def run_charger_app(config: RemoteNodeMonitorConfig, node: NodeSettings, node_nu
         time.sleep(0.01)
     print(f"Settings charger for Node{node_num} to {charger_state_message}")
 
-    garbled_counter = 0
-    max_garbled = 10
 
-    while garbled_counter < max_garbled:
-        try:
-            config.Nucleo.Serial.flush()
-            line = config.Nucleo.Serial.readline()
-            if line:
-                print(line)
-                if b'Charger State Set' in line:
-                    garbled_counter = 10
-                    print(f"Settings charger state for Node{node_num} to {charger_state_message} successful")
-        except:
-            garbled_counter + 1
-            print("garbled_counter:", garbled_counter)
+    # config.Nucleo.Serial.flush()
+    line = config.Nucleo.Serial.readline()
+    print(line)
+    if b'Charger State Set' in line:
+        print(f"Settings charger state for Node{node_num} to {charger_state_message} successful")
             
 
 def setup_logger(name, log_file, level=logging.INFO, rotating=1):
@@ -423,26 +423,23 @@ def run_reset_application(config: RemoteNodeMonitorConfig, node: bytes = BOTH):
     both = BOTH.decode('utf-8')
     
     
-    garbled_counter = 0
-    max_garbled = 10
-    while garbled_counter < max_garbled:
-        try:
-            if node != (node1 or node2 or both):
-                print("Invalid Node selection")
+
+
+    if node != (node1 or node2 or both):
+        print("Invalid Node selection")
+    else:
+        if node == node1 or both:
+            line_n1 = config.Nucleo.Serial.readline()
+            if b"Dev1 ON" in line_n1:
+                print("Device1 ON")
+
             else:
-                if node == node1 or both:
-                    line_n1 = config.Nucleo.Serial.readline().decode('utf-8').strip()
-                    if "Dev1 ON" in line_n1:
-                        print("Device1 ON")
-                        garbled_counter = 10
-                    else:
-                        print("Device1 OFF")
-                    garbled_counter = 10
-                if node == node2 or both:
-                    line_n2 = config.Nucleo.Serial.readline().decode('utf-8').strip()
-                    print("Device2 ON") if "Dev2 ON" in line_n2 else print("Device2 OFF")
-        except:
-            garbled_counter + 1
+                print("Device1 OFF")
+
+        if node == node2 or both:
+            line_n2 = config.Nucleo.Serial.readline()
+            print("Device2 ON") if b"Dev2 ON" in line_n2 else print("Device2 OFF")
+
     run_init(config)
     print("Power cycle complete.")
 
@@ -466,6 +463,48 @@ def get_info_table(b, a):
 
     return string
 
+
+def run_reset(config: RemoteNodeMonitorConfig):
+    run_reset_application(config, b'1')
+    run_reset_application(config, b'2')
+    
+
+def molly_communication(config: RemoteNodeMonitorConfig, skyla_dict: dict, payload: bytes):
+    molly_complete = False
+    max_cheat = 20
+    cheat = 0
+    while cheat < max_cheat:
+        try:
+            line = config.Nucleo.Serial.readline()
+        except serial.SerialException:
+                print(cheat, "time(s) readline")
+                cheat += 1
+                continue
+        
+        if line:
+            try:
+                line = line.decode('utf-8').strip()
+                if "C1" not in line:
+                    time_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(time_now, " decoded: ", line)
+            except:
+                continue
+            else:
+                if SKYLA1_PREFIX in line:
+                    contents = line.split("|")
+                    if len(contents) == 4:
+                        skyla_dict[contents[1]][contents[2]] = contents[3]
+                
+                if "send payload" in line:
+                    print("sending payload")
+                    print(payload)
+                    config.Nucleo.Serial.write(payload)
+
+                if "molly complete" in line:
+                    print("molly complete")
+                    molly_complete = True
+                    cheat = 20
+    return molly_complete
 
 def run_molly(config: RemoteNodeMonitorConfig):
     from lib.external.mCommon3.service.skyla_service import update_app_key, update_net_key, update_creed_settings
@@ -503,8 +542,8 @@ def run_molly(config: RemoteNodeMonitorConfig):
         skyla1_payload = generate_skyla_payload(config.Skyla1.Settings)
         molly_logger.info(f"Skyla1 payload: {skyla1_payload}")
         batch_payload = generate_skyla_payload_batched(skyla1_payload)
-        print(batch_payload["id_and_keys"])
-        # exit()
+        concat_payload = generate_skyla_payload_batched_concated(batch_payload)
+
         molly_logger.info("Running Molly application on Skyla1 ...")
         config.Nucleo.Serial.write(SETMODE_MOLLY_DEV1)
 
@@ -512,56 +551,20 @@ def run_molly(config: RemoteNodeMonitorConfig):
             "B": {},
             "A": {}
         }
+        
+        result = molly_communication(config, skyla1_dict, concat_payload)
 
-        cheat = 1
-        while 1:
-            try:
-                line = config.Nucleo.Serial.readline()
-            except serial.SerialException:
-                print(cheat, "time(s) readline")
-                cheat += 1
-                continue
-            if line:
-                # print("raw serial output", line)
-                try:
-                    orginal_line = line
-                    line = line.decode('utf-8').strip()
-                    if "C1" not in line:
-                        time_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(time_now, " decoded: ", line)
-                    if "Looking" in line:
-                        print("raw: ", orginal_line)
-                except:
-                    continue
-                else:
-                    if SKYLA1_PREFIX in line:
-                        try:
-                            # print("prefix in line")
-                            contents = line.split("|")
-                            skyla1_dict[contents[1]][contents[2]] = contents[3]
-                        except:
-                            continue
-
-                    if "send payload" in line:
-                        print("sending payload")
-                        # config.Nucleo.Serial.write(skyla1_payload)
-                        config.Nucleo.Serial.write(batch_payload["settings"])
-                        # print("sent")
-
-                    if "molly complete" in line:
-                        break
-                        print("molly complete")
         run_reset_application(config, NODE1)
 
         molly_logger.info(
             "=== SKYLA1 MOLLY OUTPUT ============================================================================"
             "================================================")
-        molly_logger.info(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
+        # molly_logger.info(get_info_table(skyla1_dict["B"], skyla1_dict["A"]))
         molly_logger.info("Done Mollying Skyla1.")
 
-    reset_command = f'sudo st-flash reset'
-    out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-    print(out.stdout)
+    # reset_command = f'sudo st-flash reset'
+    # out = subprocess.run(reset_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+    # print(out.stdout)
 
     if config.Skyla2.Molly:
         update_keys_dataframe_from_vault(config.Skyla2.Settings)
@@ -599,6 +602,7 @@ def run_molly(config: RemoteNodeMonitorConfig):
                         config.Nucleo.Serial.write(skyla2_payload)
 
                     if "molly complete" in line:
+                        print("molly complete")
                         break
         run_reset_application(config, NODE2)
 
@@ -609,8 +613,6 @@ def run_molly(config: RemoteNodeMonitorConfig):
         molly_logger.info("Done Mollying Skyla2.")
 
     config.Nucleo.Serial.close()
-    run_init(config)
-
     molly_logger.info("Exiting. Resetting Node now.")
 
 

@@ -33,3 +33,12 @@ def generate_skyla_payload_batched(generated_str: bytes):
         [batch_1_option] + batch_1_values) + split_char)
     
     return batch_payload
+
+
+def generate_skyla_payload_batched_concated(batch_payload: dict = None):
+    id_and_keys_len = len(batch_payload["id_and_keys"]).to_bytes(1, "big")
+    print(id_and_keys_len)
+    setting_len = len(batch_payload["settings"]).to_bytes(1, "big")
+    print(setting_len)
+    
+    return id_and_keys_len + setting_len + batch_payload["id_and_keys"] + batch_payload["settings"]
